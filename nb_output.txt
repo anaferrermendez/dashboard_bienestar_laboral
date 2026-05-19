@@ -1,0 +1,1858 @@
+--- Cell 3 ---
+pip install missingno
+
+--- Cell 4 ---
+import warnings
+warnings.filterwarnings('ignore')
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+import seaborn as sns
+import missingno as msno
+from scipy import stats
+from sklearn.impute import KNNImputer, SimpleImputer
+import os
+
+# ── Estilo global ────────────────────────────────────────────────────────────
+try:
+    plt.style.use('seaborn-v0_8-whitegrid')
+except:
+    plt.style.use('seaborn-whitegrid')
+
+PALETA = ['#1f4e79', '#2e75b6', '#9dc3e6', '#ffc000', '#c55a11']
+matplotlib.rcParams['figure.figsize'] = (12, 6)
+matplotlib.rcParams['figure.dpi'] = 100
+matplotlib.rcParams['font.size'] = 11
+
+# ── Directorio de figuras ────────────────────────────────────────────────────
+os.makedirs('figures', exist_ok=True)
+
+print("Librerías cargadas correctamente.")
+print(f"pandas {pd.__version__} | numpy {np.__version__} | matplotlib {matplotlib.__version__}")
+
+
+--- Cell 6 ---
+#df = pd.read_excel('bienestar_laboral_Preprocesamiento.xlsx')
+ruta = "/home/serch/Descargas/Proyecto Final/bienestar_laboral_Preprocesamiento.xlsx"
+df = pd.read_excel(ruta)
+df_original = df.copy()   # NUNCA se modifica
+
+print("=== Shape ===")
+n_filas, n_cols = df.shape
+print(f"Filas: {n_filas}  |  Columnas: {n_cols}")
+if n_filas != 412 or n_cols != 112:
+    print(f"⚠ Shape real: {n_filas} × {n_cols} — el enunciado indicaba 412 × 112")
+else:
+    print(f"✔ Shape confirmado: {n_filas} × {n_cols}")
+
+print("\n=== Primeras 3 filas (primeras 8 columnas) ===")
+display(df.iloc[:3, :8])
+
+print("\n=== Dtypes agrupados ===")
+dtype_summary = df.dtypes.value_counts().reset_index()
+dtype_summary.columns = ['dtype', 'n_columnas']
+display(dtype_summary)
+
+print("\n=== Columnas por dtype ===")
+for dtype in df.dtypes.unique():
+    cols = df.select_dtypes(include=[dtype]).columns.tolist()
+    print(f"{dtype}: {cols}")
+
+
+--- Cell 8 ---
+# ── Variables sociodemográficas (primeras 21 columnas) ───────────────────────
+COLS_SOCIODEM = df.columns[:21].tolist()
+print(f"COLS_SOCIODEM ({len(COLS_SOCIODEM)}): {COLS_SOCIODEM}")
+
+# ── Columnas BP ──────────────────────────────────────────────────────────────
+COLS_BP = [c for c in df.columns if c.startswith('BP')]
+print(f"\nCOLS_BP ({len(COLS_BP)}): {COLS_BP}")
+
+# ── Diccionario de las 16 dimensiones con sus ítems exactos ─────────────────
+DIMS = {
+    'CTRL':    ['CT1', 'CT2', 'CT3'],
+    'PRES':    ['PT1', 'PT2', 'PT3', 'PT4'],
+    'LIDER':   ['CL1', 'CL2', 'CL3', 'CL4', 'CL5', 'CL6', 'CL7'],
+    'COMP':    ['AC1', 'AC2', 'AC3'],
+    'ROL_C':   ['CR1', 'CR2', 'CR3', 'CR4'],
+    'ROL_CON': ['CoR1', 'CoR2', 'CoR3'],
+    'CAMBIO':  ['GC1', 'GC2', 'GC3', 'GC4'],
+    'SM_ORG':  ['SM1', 'SM2', 'SM3', 'SM4', 'SM5'],
+    'SAT':     ['SAT1', 'SAT2', 'SAT3', 'SAT4', 'SAT5', 'SAT6', 'SAT7', 'SAT8', 'SAT9'],
+    'RETIRO':  ['IR1', 'IR2', 'IR3', 'IR4'],
+    'FAM_TRAB':['FT1', 'FT2', 'FT3', 'FT4', 'FT5'],
+    'TRAB_FAM':['TF1', 'TF2', 'TF3', 'TF4', 'TF5'],
+    'BURNOUT': ['BU1', 'BU2', 'BU3', 'BU4', 'BU5', 'BU6', 'BU7',
+                'BU8', 'BU9', 'BU10', 'BU11', 'BU12'],
+    'BIENESTAR':COLS_BP,
+    'SOMATIZ': ['SOM1', 'SOM2', 'SOM3', 'SOM4', 'SOM5'],
+    'DESGASTE':['DL1', 'DL2', 'DL3', 'DL4', 'DL5', 'DL6', 'DL7', 'DL8'],
+}
+
+# ── Todas las columnas de escala (unión de las dimensiones) ─────────────────
+COLS_ESCALA = []
+for items in DIMS.values():
+    COLS_ESCALA.extend(items)
+
+# ── Subgrupos de escala por tipo ─────────────────────────────────────────────
+COLS_FREC    = (DIMS['CTRL'] + DIMS['PRES'] + DIMS['LIDER'] + DIMS['COMP'] +
+                DIMS['ROL_C'] + DIMS['ROL_CON'] + DIMS['CAMBIO'] + DIMS['SM_ORG'])
+COLS_ACUERDO = DIMS['SAT'] + DIMS['RETIRO'] + DIMS['FAM_TRAB'] + DIMS['TRAB_FAM']
+COLS_BU_FREC = DIMS['BURNOUT']
+COLS_SOMATIZ = DIMS['SOMATIZ'] + DIMS['DESGASTE']
+
+print(f"\nTotal ítems en DIMS: {len(COLS_ESCALA)}")
+print(f"COLS_FREC    (frec 1-5): {len(COLS_FREC)}")
+print(f"COLS_ACUERDO (acuerdo 1-7): {len(COLS_ACUERDO)}")
+print(f"COLS_BU_FREC (burnout 1-5): {len(COLS_BU_FREC)}")
+print(f"COLS_SOMATIZ (somatiz 1-7): {len(COLS_SOMATIZ)}")
+print(f"COLS_BP      (bienestar 1-7): {len(COLS_BP)}")
+
+# ── Verificaciones ───────────────────────────────────────────────────────────
+assert len(COLS_ESCALA) == 91, f"Se esperaban 91 ítems, hay {len(COLS_ESCALA)}"
+assert set(COLS_SOCIODEM) | set(COLS_ESCALA) == set(df.columns), \
+    "COLS_SOCIODEM ∪ COLS_ESCALA ≠ todas las columnas"
+print("\n✔ Verificaciones superadas: 91 ítems de escala, unión de grupos = todas las columnas")
+
+
+--- Cell 10 ---
+def reporte_calidad(df, nombre="Dataset"):
+    """Reporte automático del estado de calidad. Retorna dict e imprime formateado."""
+    n_filas, n_cols = df.shape
+    n_celdas = n_filas * n_cols
+
+    # Faltantes
+    faltantes_total = int(df.isnull().sum().sum())
+    pct_faltantes   = round(faltantes_total / n_celdas * 100, 2)
+    cols_con_faltantes = int((df.isnull().sum() > 0).sum())
+
+    # Duplicados y constantes
+    n_duplicados   = int(df.duplicated().sum())
+    cols_constantes = int((df.nunique() <= 1).sum())
+
+    # Problemas en columnas de escala
+    cols_esc = [c for c in COLS_ESCALA if c in df.columns]
+    cols_esc_obj = [c for c in cols_esc if df[c].dtype == object]
+
+    # Valores fuera de rango en columnas numéricas de escala
+    esc_num = [c for c in cols_esc if c not in cols_esc_obj]
+    fuera_rango_5 = 0
+    fuera_rango_7 = 0
+    if esc_num:
+        for c in COLS_FREC + COLS_BU_FREC:
+            if c in df.columns and df[c].dtype != object:
+                fuera_rango_5 += int((~df[c].dropna().between(1, 5)).sum())
+        for c in COLS_ACUERDO + COLS_SOMATIZ + COLS_BP:
+            if c in df.columns and df[c].dtype != object:
+                fuera_rango_7 += int((~df[c].dropna().between(1, 7)).sum())
+
+    # dtypes
+    dtype_counts = df.dtypes.astype(str).value_counts().to_dict()
+
+    resultado = {
+        'nombre': nombre,
+        'filas': n_filas,
+        'columnas': n_cols,
+        'dtype_counts': dtype_counts,
+        'faltantes_total': faltantes_total,
+        'pct_faltantes': pct_faltantes,
+        'cols_con_faltantes': cols_con_faltantes,
+        'n_duplicados': n_duplicados,
+        'cols_constantes': cols_constantes,
+        'cols_escala_object': len(cols_esc_obj),
+        'fuera_rango_1_5': fuera_rango_5,
+        'fuera_rango_1_7': fuera_rango_7,
+    }
+
+    print(f"{'='*60}")
+    print(f"  REPORTE DE CALIDAD — {nombre}")
+    print(f"{'='*60}")
+    print(f"  Dimensiones       : {n_filas} filas × {n_cols} columnas")
+    print(f"  Dtypes            : {dtype_counts}")
+    print(f"  Celdas vacías NaN : {faltantes_total:,} ({pct_faltantes}%)")
+    print(f"  Cols con faltantes: {cols_con_faltantes}")
+    print(f"  Duplicados exactos: {n_duplicados}")
+    print(f"  Cols constantes   : {cols_constantes}")
+    print(f"  Cols escala object: {len(cols_esc_obj)}")
+    print(f"  Fuera de rango 1-5: {fuera_rango_5}")
+    print(f"  Fuera de rango 1-7: {fuera_rango_7}")
+    print(f"{'='*60}")
+    return resultado
+
+baseline = reporte_calidad(df_original, "Dataset Original")
+
+
+--- Cell 12 ---
+columnas = df.columns.tolist()
+for i, col in enumerate(columnas):
+    print(i, col)
+
+--- Cell 13 ---
+items_likert = [col for col in df.columns if col not in 
+                ['ID', 'Edad', 'Sexo', 'Estado_Civil', 'Numero_Hijos', 
+                 'Nivel_Educativo', 'Zona_Vivienda', 'Estrato', 'Sector',
+                 'Tamaño_Empresa', 'Trabajo_Turnos', 'Tipo_Contrato',
+                 'Horas_Semana', 'Ingreso', 'Tipo_Cargo', 'Personas_Cargo',
+                 'Años_Experiencia', 'Antiguedad_Cargo', 'Modalidad',
+                 'Horas_Traslado', 'Horas_Formacion']]
+
+print(f"Ítems Likert: {len(items_likert)}")  # debería dar 91
+
+# Ver rangos por ítem
+df[items_likert].describe().T[['min', 'max', 'mean']]
+
+--- Cell 15 ---
+# Detectar tipos por columna
+df[items_likert].dtypes.value_counts()
+
+# Ver valores únicos de los que son objeto (texto)
+for col in items_likert:
+    if df[col].dtype == 'object':
+        print(f"{col}: {df[col].unique()[:10]}")
+
+--- Cell 19 ---
+print(f"Dimensiones del dataset: {df.shape[0]} filas × {df.shape[1]} columnas")
+print()
+
+# Tabla agrupada por dtype
+print("=== TABLA: dtype → n_columnas ===")
+for dtype_name, group in df.dtypes.groupby(df.dtypes.astype(str)):
+    cols = group.index.tolist()
+    print(f"  {dtype_name:12s}: {len(cols):3d} columnas  → primeras 5: {cols[:5]}")
+
+print()
+print("=== COLUMNAS DE ESCALA CON dtype INESPERADO (object) ===")
+escala_obj = [c for c in COLS_ESCALA if df[c].dtype == object]
+print(f"  Total ítems de escala como object: {len(escala_obj)} / {len(COLS_ESCALA)}")
+print(f"  Columnas: {escala_obj[:10]} ...")
+
+print()
+print("=== SEPARACIÓN: 21 SOCIODEMOGRÁFICAS vs 91 DE ESCALA ===")
+print(f"  Sociodemográficas ({len(COLS_SOCIODEM)}):")
+for c in COLS_SOCIODEM:
+    print(f"    {c:25s} → {str(df[c].dtype):10s}")
+print(f"  Primeras 10 de escala:")
+for c in COLS_ESCALA[:10]:
+    print(f"    {c:10s} → {str(df[c].dtype):10s}  (valores únicos: {df[c].nunique(dropna=True)})")
+
+
+--- Cell 22 ---
+miss = df.isnull().sum()
+miss_cols = miss[miss > 0].sort_values(ascending=False)
+
+# Enriquecer con porcentaje y grupo
+tabla_faltantes = pd.DataFrame({
+    'n_faltantes': miss_cols,
+    'pct': (miss_cols / len(df) * 100).round(2),
+    'grupo': ['escala' if c in COLS_ESCALA else 'sociodem' for c in miss_cols.index]
+})
+
+print(f"Total celdas vacías NaN: {int(df.isnull().sum().sum()):,}")
+print(f"Columnas con al menos 1 faltante: {len(miss_cols)}")
+print(f"  → En sociodemográficas: {(tabla_faltantes['grupo'] == 'sociodem').sum()}")
+print(f"  → En escala           : {(tabla_faltantes['grupo'] == 'escala').sum()}")
+print()
+print("=== Top 20 columnas por número de faltantes ===")
+display(tabla_faltantes.head(20))
+
+
+--- Cell 25 ---
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+# Calcular % de faltantes por grupo
+grupos = {'Sociodemográficas': COLS_SOCIODEM, **DIMS}
+
+faltantes_por_grupo = {
+    nombre: df[cols].isnull().mean().mean() * 100 
+    for nombre, cols in grupos.items()
+}
+
+# Ordenar de mayor a menor
+faltantes_df = pd.DataFrame.from_dict(faltantes_por_grupo, orient='index', 
+                                       columns=['% Faltantes']).sort_values('% Faltantes', ascending=True)
+
+# Gráfico de barras horizontales
+fig, ax = plt.subplots(figsize=(10, 7))
+colors = ['#d62728' if v > 10 else '#ff7f0e' if v > 5 else '#2ca02c' 
+          for v in faltantes_df['% Faltantes']]
+bars = ax.barh(faltantes_df.index, faltantes_df['% Faltantes'], color=colors, edgecolor='black', linewidth=0.5)
+
+# Etiquetas con el valor
+for bar, val in zip(bars, faltantes_df['% Faltantes']):
+    ax.text(val + 0.2, bar.get_y() + bar.get_height()/2, 
+            f'{val:.1f}%', va='center', fontsize=9)
+
+ax.set_xlabel('% promedio de faltantes', fontsize=11)
+ax.set_title('Valores faltantes por dimensión', fontsize=13, fontweight='bold', pad=15)
+ax.axvline(x=5, color='gray', linestyle='--', alpha=0.5, label='Umbral 5%')
+ax.axvline(x=10, color='red', linestyle='--', alpha=0.5, label='Umbral 10%')
+ax.legend(loc='lower right')
+ax.grid(axis='x', alpha=0.3)
+plt.tight_layout()
+plt.savefig('figures/1.3b_faltantes_por_dimension.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+--- Cell 26 ---
+import missingno as msno
+
+# Crear subplots: 4 columnas x 5 filas para las 17 secciones (sociodem + 16 dims)
+n_grupos = len(grupos)
+ncols = 4
+nrows = int(np.ceil(n_grupos / ncols))
+
+fig, axes = plt.subplots(nrows, ncols, figsize=(20, 4*nrows))
+axes = axes.flatten()
+
+for i, (nombre, cols) in enumerate(grupos.items()):
+    msno.matrix(df[cols], ax=axes[i], color=(0.12, 0.31, 0.47), 
+                sparkline=False, fontsize=8)
+    pct_faltantes = df[cols].isnull().mean().mean() * 100
+    axes[i].set_title(f'{nombre}\n({len(cols)} cols, {pct_faltantes:.1f}% faltantes)', 
+                       fontsize=10, fontweight='bold')
+
+# Ocultar ejes sobrantes
+for j in range(len(grupos), len(axes)):
+    axes[j].axis('off')
+
+plt.suptitle('Patrón de valores faltantes por dimensión', fontsize=15, fontweight='bold', y=1.00)
+plt.tight_layout()
+plt.savefig('figures/1.3c_missingno_por_dimension.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+--- Cell 28 ---
+import seaborn as sns
+
+# Crear matriz de "tasa de faltantes por encuestado por dimensión"
+faltantes_por_encuestado = pd.DataFrame({
+    nombre: df[cols].isnull().mean(axis=1)
+    for nombre, cols in grupos.items()
+})
+
+# Matriz de correlación
+corr_faltantes = faltantes_por_encuestado.corr()
+
+# Heatmap
+fig, ax = plt.subplots(figsize=(11, 9))
+sns.heatmap(corr_faltantes, annot=True, fmt='.2f', cmap='RdYlBu_r', 
+            center=0, vmin=-1, vmax=1, square=True, linewidths=0.5,
+            cbar_kws={'label': 'Correlación de tasa de faltantes'},
+            annot_kws={'size': 8})
+ax.set_title('Correlación de ausencias entre dimensiones\n(¿Las ausencias siguen un patrón?)', 
+             fontsize=12, fontweight='bold', pad=15)
+plt.tight_layout()
+plt.savefig('figures/1.3d_correlacion_faltantes.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+--- Cell 30 ---
+import seaborn as sns
+
+# Construir DataFrame largo con % faltantes por columna y su dimensión
+datos_box = []
+for nombre, cols in {'Sociodemográficas': COLS_SOCIODEM, **DIMS}.items():
+    for col in cols:
+        pct = (df[col].isnull().sum() / len(df)) * 100
+        datos_box.append({'Dimensión': nombre, 'Columna': col, '% Faltantes': pct})
+
+df_box = pd.DataFrame(datos_box)
+
+# Ordenar dimensiones por mediana de faltantes
+orden = df_box.groupby('Dimensión')['% Faltantes'].median().sort_values().index.tolist()
+
+# Boxplot
+fig, ax = plt.subplots(figsize=(12, 6))
+sns.boxplot(data=df_box, y='Dimensión', x='% Faltantes', order=orden,
+            color='#1f4e79', ax=ax, fliersize=4)
+sns.stripplot(data=df_box, y='Dimensión', x='% Faltantes', order=orden,
+              color='black', size=3, alpha=0.5, ax=ax)
+
+ax.set_title('Distribución de faltantes por columna, agrupado por dimensión', 
+             fontsize=13, fontweight='bold', pad=15)
+ax.set_xlabel('% de valores faltantes por columna', fontsize=11)
+ax.set_ylabel('')
+ax.grid(axis='x', alpha=0.3)
+plt.tight_layout()
+plt.savefig('figures/1.3b_boxplot_faltantes_dimension.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+--- Cell 32 ---
+CODIGOS_NULOS = [999, -1, 'N/A', 'NA', 'null', 'NULL', 'Null', 'no aplica',
+                 'No aplica', 'NO APLICA', '.', 'nan', 'NaN', 'sin dato',
+                 'Sin dato', '?', '--']
+
+registros_nulos = []
+
+for codigo in CODIGOS_NULOS:
+    mask = df.isin([codigo])
+    total = int(mask.sum().sum())
+    if total > 0:
+        for col in df.columns[mask.any()]:
+            freq = int(mask[col].sum())
+            registros_nulos.append({
+                'Columna_afectada': col,
+                'Codigo_nulo': str(codigo),
+                'Frecuencia': freq,
+                'Grupo': 'escala' if col in COLS_ESCALA else 'sociodem/num'
+            })
+
+tabla_codigos = pd.DataFrame(registros_nulos).sort_values(['Codigo_nulo', 'Columna_afectada'])
+print(f"Codigos nulos heterogeneos detectados: {len(tabla_codigos)} ocurrencias")
+print(f"Columnas afectadas: {tabla_codigos['Columna_afectada'].nunique()}")
+print()
+display(tabla_codigos)
+
+total_adicional = tabla_codigos['Frecuencia'].sum()
+print()
+print(f"Total de valores adicionales que son nulos pero NO NaN: {total_adicional}")
+
+# Conversion inmediata a NaN
+# Se convierte aqui en la auditoria para que la Seccion 4 (mapeo de escalas)
+# no encuentre estos valores y falle silenciosamente al mapearlos.
+print()
+print("Convirtiendo codigos nulos a NaN...")
+faltantes_antes_conversion = int(df.isnull().sum().sum())
+
+CODIGOS_NULOS_REPLACE = [999, -1, '999', '-1', 'N/A', 'NA', 'null', 'NULL',
+                          'Null', 'no aplica', 'No aplica', 'NO APLICA',
+                          '.', 'nan', 'NaN', 'sin dato', 'Sin dato', '?', '--']
+
+for codigo in CODIGOS_NULOS_REPLACE:
+    df = df.replace(codigo, np.nan)
+
+for col in ['Edad', 'Horas_Semana', 'Horas_Formacion']:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+faltantes_despues_conversion = int(df.isnull().sum().sum())
+adicionales_convertidos = faltantes_despues_conversion - faltantes_antes_conversion
+pct_total = round(faltantes_despues_conversion / (df.shape[0] * df.shape[1]) * 100, 2)
+
+print(f"NaN antes de conversion  : {faltantes_antes_conversion:,}")
+print(f"NaN despues de conversion: {faltantes_despues_conversion:,}")
+print(f"Valores adicionales convertidos a NaN: {adicionales_convertidos}")
+print(f"Total real de ausencias en el dataset: {faltantes_despues_conversion:,} ({pct_total}%)")
+
+--- Cell 35 ---
+# ── Nivel A: duplicados exactos ──────────────────────────────────────────────
+dup_exactos = int(df.duplicated().sum())
+print(f"Duplicados exactos (todas las columnas): {dup_exactos}")
+
+# ── Nivel B: duplicados lógicos ──────────────────────────────────────────────
+SUBSET_LOGICO = ['Edad', 'Sexo', 'Estado_Civil', 'Numero_Hijos', 
+                 'Nivel_Educativo', 'Zona_Vivienda', 'Estrato',
+                 'Sector', 'Tamaño_Empresa', 'Tipo_Contrato', 
+                 'Horas_Semana', 'Ingreso', 'Tipo_Cargo', 
+                 'Personas_Cargo', 'Años_Experiencia', 'Antiguedad_Cargo',
+                 'Modalidad', 'Horas_Traslado', 'Horas_Formacion']
+dup_logicos_mask = df.duplicated(subset=SUBSET_LOGICO, keep=False)
+n_dup_logicos = int(dup_logicos_mask.sum())
+print(f"Filas involucradas en duplicados lógicos (subconjunto clave): {n_dup_logicos}")
+
+if n_dup_logicos > 0:
+    filas_dup = df[dup_logicos_mask].sort_values(SUBSET_LOGICO)
+    print("\nPrimeras 10 filas duplicadas lógicamente:")
+    display(filas_dup[['ID'] + SUBSET_LOGICO].head(10))
+
+    print(f"\nTotal de grupos duplicados:")
+    grupos = filas_dup.groupby(SUBSET_LOGICO, dropna=False).size()
+    print(grupos[grupos > 1].head(10))
+
+
+--- Cell 36 ---
+import numpy as np
+
+# Para cada par de duplicados lógicos, calcular % de coincidencia en ítems Likert
+items_likert = [c for c in df.columns if c not in COLS_SOCIODEM]
+
+filas_dup = df[dup_logicos_mask].sort_values(SUBSET_LOGICO).reset_index(drop=True)
+
+# Comparar filas consecutivas dentro de cada grupo de duplicados
+similitudes = []
+for i in range(len(filas_dup) - 1):
+    fila_a = filas_dup.iloc[i][items_likert]
+    fila_b = filas_dup.iloc[i+1][items_likert]
+    
+    # Coincidencias (ignorando NaN)
+    coincidencias = (fila_a == fila_b).sum()
+    validas = ((fila_a.notna()) & (fila_b.notna())).sum()
+    pct_coincidencia = (coincidencias / validas * 100) if validas > 0 else 0
+    
+    similitudes.append({
+        'ID_A': filas_dup.iloc[i]['ID'],
+        'ID_B': filas_dup.iloc[i+1]['ID'],
+        '% Coincidencia ítems': round(pct_coincidencia, 1),
+        'Ítems comparables': validas
+    })
+
+df_similitud = pd.DataFrame(similitudes)
+print(df_similitud.head(20))
+
+--- Cell 39 ---
+cols_categoricas = [c for c in COLS_SOCIODEM if df[c].dtype == object]
+
+resumen_cat = []
+for col in cols_categoricas:
+    vc = df[col].value_counts(dropna=False)
+    vals_str = [str(v) for v in df[col].dropna().unique()]
+
+    # Detectar typos: variantes del mismo valor con diferente capitalización/espacios
+    vals_lower = [v.strip().lower() for v in vals_str]
+    tiene_typos = len(vals_str) != len(set(vals_lower))
+
+    # Detectar nulos disfrazados
+    nulos_disfraz = [v for v in vals_str
+                     if v.strip().lower() in ['na', 'n/a', 'null', 'no aplica',
+                                               'sin dato', 'nd', '.', '?', 'ninguno']]
+
+    resumen_cat.append({
+        'Variable': col,
+        'N_categorias_raw': df[col].nunique(dropna=True),
+        'Tiene_typos': tiene_typos,
+        'Tiene_nulos_disfrazados': len(nulos_disfraz) > 0,
+        'Ejemplos_typos': str(sorted(df[col].dropna().unique())[:6])
+    })
+
+tabla_cat = pd.DataFrame(resumen_cat)
+display(tabla_cat)
+
+
+--- Cell 40 ---
+# ── Detalle de variables con typos ──────────────────────────────────────────
+vars_con_typos = ['Sexo', 'Estado_Civil', 'Sector', 'Tipo_Cargo', 'Modalidad']
+
+for col in vars_con_typos:
+    print(f"\n{'─'*50}")
+    print(f"  {col}  ({df[col].nunique()} categorías únicas en bruto)")
+    print(f"{'─'*50}")
+    print(df[col].value_counts(dropna=False).to_string())
+
+
+--- Cell 43 ---
+# ── a) Columnas de escala que son object: variantes textuales ────────────────
+print("=== VARIANTES TEXTUALES EN ÍTEMS DE ESCALA ===")
+columnas_con_variantes = {}
+
+for col in COLS_ESCALA:
+    if df[col].dtype == object:
+        vals = sorted([str(v) for v in df[col].dropna().unique()])
+        vals_lower = [v.strip().lower() for v in vals]
+        # Detectar duplicados semánticos (mismo valor diferente capitalización/typo)
+        sospechosos = [v for v in vals
+                       if v != v.strip() or v != v.strip().title()
+                       or v.upper() == v or v.lower() == v]
+        if sospechosos:
+            columnas_con_variantes[col] = vals
+
+print(f"Columnas con variantes textuales problemáticas: {len(columnas_con_variantes)}")
+print()
+for col, vals in list(columnas_con_variantes.items())[:10]:
+    print(f"  {col}: {vals}")
+
+
+--- Cell 44 ---
+# ── b) Columnas BP1-BP5: texto vs número ─────────────────────────────────────
+print("=== COLUMNAS BP CON MEZCLA TEXTO/NÚMERO ===")
+for col in ['BP1', 'BP2', 'BP3', 'BP4', 'BP5']:
+    vals = sorted([str(v) for v in df[col].dropna().unique()])
+    texto = [v for v in vals if not v.lstrip('-').replace('.', '').isdigit()]
+    numeros = [v for v in vals if v.lstrip('-').replace('.', '').isdigit()]
+    print(f"  {col}: texto={texto}  |  números={numeros}")
+
+print()
+print("BP6-BP10 (ya numéricas float64):")
+for col in ['BP6', 'BP7', 'BP8', 'BP9', 'BP10']:
+    print(f"  {col}: min={df[col].min()}, max={df[col].max()}, dtype={df[col].dtype}")
+
+
+--- Cell 45 ---
+# ── c) IR1: distribución actual y verificación de inversión pendiente ─────────
+print("=== IR1 — ÍTEM INVERSO (pendiente inversión) ===")
+print(df['IR1'].value_counts(dropna=False).to_string())
+print()
+
+# ── d) Valores fuera de rango en columnas numéricas de escala ─────────────────
+print("=== COLUMNAS NUMÉRICAS DE ESCALA — FUERA DE RANGO ===")
+for col in [c for c in COLS_ESCALA if df[c].dtype != object]:
+    n_bajo = int((df[col].dropna() < 1).sum())
+    n_alto = int((df[col].dropna() > 7).sum())
+    if n_bajo + n_alto > 0:
+        print(f"  {col}: {n_bajo} valores < 1 | {n_alto} valores > 7")
+
+# ── e) Columnas con '999' o '--' como string dentro de escala ─────────────────
+print()
+print("=== CODES NULOS EN COLUMNAS DE ESCALA OBJECT ===")
+for col in COLS_ESCALA:
+    if df[col].dtype == object:
+        for code in ['999', '--', '?', 'sin dato']:
+            n = (df[col] == code).sum()
+            if n > 0:
+                print(f"  {col} → '{code}': {n} ocurrencia(s)")
+
+
+--- Cell 48 ---
+tabla_problemas = pd.DataFrame([
+    # dtype incorrecto
+    {'Columna_afectada': 'CT1…DL8 (86 cols)', 'Tipo_problema': 'dtype incorrecto',
+     'Magnitud': '86 columnas',
+     'Descripcion': 'Columnas de escala almacenadas como object en lugar de numérico',
+     'Impacto_potencial': 'Imposible calcular estadísticos, correlaciones o imputar con sklearn',
+     'Prioridad': 'Crítica'},
+    # Faltantes NaN
+    {'Columna_afectada': '91 columnas de escala', 'Tipo_problema': 'Valores faltantes NaN',
+     'Magnitud': '2 582 celdas (5.6%)',
+     'Descripcion': 'Celdas vacías verdaderas detectadas con df.isnull()',
+     'Impacto_potencial': 'Promedios de dimensión sesgados, modelos con errores si no se imputa',
+     'Prioridad': 'Alta'},
+    # Codigos nulos 999
+    {'Columna_afectada': 'Edad, Horas_Semana, IR1, SOM4, SM5', 'Tipo_problema': 'Código nulo 999',
+     'Magnitud': '5 celdas',
+     'Descripcion': 'El valor 999 representa ausencia pero no es NaN; no detectado por isnull()',
+     'Impacto_potencial': 'Media de Edad sesgada, 999 mapeado a NaN en escala',
+     'Prioridad': 'Alta'},
+    # -1
+    {'Columna_afectada': 'Horas_Formacion', 'Tipo_problema': 'Código nulo -1',
+     'Magnitud': '4 celdas',
+     'Descripcion': 'El valor -1 representa horas no aplica pero contamina estadísticos',
+     'Impacto_potencial': 'Estadísticos erróneos de Horas_Formacion',
+     'Prioridad': 'Media'},
+    # ?
+    {'Columna_afectada': 'CT2, IR4, BU10', 'Tipo_problema': "Código nulo '?'",
+     'Magnitud': '3 celdas',
+     'Descripcion': 'Signo de interrogación usado como código de ausencia',
+     'Impacto_potencial': 'Falla el mapeo de escala, queda como NaN sin registro',
+     'Prioridad': 'Media'},
+    # --
+    {'Columna_afectada': 'IR3, IR4, BU10, DL7', 'Tipo_problema': "Código nulo '--'",
+     'Magnitud': '5 celdas',
+     'Descripcion': 'Doble guión usado como código de ausencia',
+     'Impacto_potencial': 'Falla el mapeo de escala',
+     'Prioridad': 'Media'},
+    # sin dato
+    {'Columna_afectada': 'CT2, IR4', 'Tipo_problema': "Código nulo 'sin dato'",
+     'Magnitud': '2 celdas',
+     'Descripcion': 'Texto literal que representa ausencia',
+     'Impacto_potencial': 'Falla el mapeo de escala',
+     'Prioridad': 'Media'},
+    # Duplicados lógicos
+    {'Columna_afectada': 'Múltiples columnas', 'Tipo_problema': 'Duplicados lógicos',
+     'Magnitud': '18 filas involucradas',
+     'Descripcion': 'Re-envíos de formulario con IDs diferentes pero mismo perfil',
+     'Impacto_potencial': 'Inflación de ciertos grupos demográficos, sesgo en promedios',
+     'Prioridad': 'Alta'},
+    # Typos categóricas
+    {'Columna_afectada': 'Sexo, Estado_Civil, Sector, Tipo_Cargo, Modalidad',
+     'Tipo_problema': 'Typos y variantes de capitalización',
+     'Magnitud': '5 variables',
+     'Descripcion': "Ej: 'Mjer', 'Casdo', 'Mixo', 'Adminstrativo', '  Presencial  '",
+     'Impacto_potencial': 'Categorías fantasma, análisis de frecuencias incorrecto',
+     'Prioridad': 'Alta'},
+    # Variantes textuales escala
+    {'Columna_afectada': 'CT2, CT3, PT1, PT3, CL3, CL4, CL7, AC1, AC2, CR4, SM1, SM3',
+     'Tipo_problema': 'Variantes textuales en escala',
+     'Magnitud': '>12 columnas',
+     'Descripcion': "Ej: 'NUNCA','nunca', 'Frecuente','A menudo','Siempree','Alguna vez'",
+     'Impacto_potencial': 'NaN al mapear → subcobertura del instrumento',
+     'Prioridad': 'Crítica'},
+    # BP texto
+    {'Columna_afectada': 'BP1, BP2, BP3, BP4, BP5', 'Tipo_problema': 'BP con texto en lugar de número',
+     'Magnitud': '5 columnas, ~30% de celdas',
+     'Descripcion': "Valores como 'cuatro','cinco','seis' en lugar de 4,5,6",
+     'Impacto_potencial': 'Toda la dimensión BIENESTAR no se puede analizar',
+     'Prioridad': 'Crítica'},
+    # IR1 sin invertir
+    {'Columna_afectada': 'IR1', 'Tipo_problema': 'Ítem inverso sin invertir',
+     'Magnitud': '1 columna, 412 filas',
+     'Descripcion': 'IR1 redactado en sentido opuesto — requiere transformación 8 - IR1',
+     'Impacto_potencial': 'Promedio de dimensión RETIRO invalida la interpretación',
+     'Prioridad': 'Crítica'},
+])
+
+tabla_problemas['ID_problema'] = range(1, len(tabla_problemas)+1)
+cols_orden = ['ID_problema', 'Tipo_problema', 'Columna_afectada', 'Magnitud',
+              'Descripcion', 'Impacto_potencial', 'Prioridad']
+tabla_problemas = tabla_problemas[cols_orden]
+
+display(tabla_problemas)
+
+# Exportar a Excel
+tabla_problemas.to_excel('auditoria_inicial_hallazgos.xlsx', index=False)
+print("\nExportado: auditoria_inicial_hallazgos.xlsx")
+print(f"Total tipos de problemas identificados: {len(tabla_problemas)}")
+print(f"Columnas afectadas estimadas: {df.shape[1]}")
+
+
+--- Cell 52 ---
+n_antes = len(df)
+print(f"Registros ANTES de eliminar duplicados: {n_antes}")
+
+# ── Criterio documentado ─────────────────────────────────────────────────────
+# La detección de duplicados se hizo en dos niveles para evitar eliminar
+# personas distintas con perfiles sociolaborales similares por azar:
+#
+# Nivel 1 - Detección preliminar (perfil sociolaboral completo):
+#   Se identifican filas que coinciden en las 19 variables sociodemográficas
+#   y laborales. Estos son CANDIDATOS, no duplicados confirmados.
+#   Al incluir variables continuas (Ingreso, Años_Experiencia, Antiguedad_Cargo)
+#   y de alta cardinalidad, la probabilidad de coincidencia por azar entre
+#   personas distintas es marginal.
+#
+# Nivel 2 - Confirmación (respuestas Likert):
+#   Para cada par candidato, se calcula el % de coincidencia en los 91
+#   ítems Likert. Si la coincidencia es 100%, se confirma como reenvío
+#   del formulario; si es <100%, se conservan ambos como personas distintas.
+#
+# Justificación: Aunque el subset sociolaboral amplio ya da alta confianza,
+# la validación cruzada con los 91 ítems Likert nos da certeza estadística
+# total, ya que la probabilidad de que dos personas distintas respondan
+# idénticamente a 91 ítems es prácticamente nula.
+#
+# Regla de conservación: Se conserva el ID más bajo (envío original) y se
+# elimina el ID más alto (reenvío), bajo el supuesto de que el sistema
+# asigna IDs secuencialmente y el primer envío es más espontáneo.
+
+# ── Nivel 1: identificar candidatos a duplicados ─────────────────────────────
+SUBSET_LOGICO = ['Edad', 'Sexo', 'Estado_Civil', 'Numero_Hijos',
+                 'Nivel_Educativo', 'Zona_Vivienda', 'Estrato',
+                 'Sector', 'Tamaño_Empresa', 'Tipo_Contrato',
+                 'Horas_Semana', 'Ingreso', 'Tipo_Cargo',
+                 'Personas_Cargo', 'Años_Experiencia', 'Antiguedad_Cargo',
+                 'Modalidad', 'Horas_Traslado', 'Horas_Formacion']
+dup_mask = df.duplicated(subset=SUBSET_LOGICO, keep=False)
+print(f"\nNivel 1 - Candidatos a duplicados (perfil sociolaboral completo): {dup_mask.sum()}")
+
+# ── Nivel 2: confirmar con coincidencia en ítems Likert ──────────────────────
+items_likert = [c for c in df.columns if c not in COLS_SOCIODEM]
+filas_dup = df[dup_mask].sort_values(SUBSET_LOGICO + ['ID']).reset_index(drop=True)
+
+pares_confirmados = []
+for i in range(len(filas_dup) - 1):
+    fila_a = filas_dup.iloc[i]
+    fila_b = filas_dup.iloc[i + 1]
+    
+    # Solo comparar si pertenecen al mismo grupo del subset lógico
+    mismo_grupo = all(
+        (pd.isna(fila_a[col]) and pd.isna(fila_b[col])) or fila_a[col] == fila_b[col]
+        for col in SUBSET_LOGICO
+    )
+    if not mismo_grupo:
+        continue
+    
+    # Calcular % de coincidencia en ítems Likert (ignorando NaN)
+    coincidencias = (fila_a[items_likert] == fila_b[items_likert]).sum()
+    validas = (fila_a[items_likert].notna() & fila_b[items_likert].notna()).sum()
+    pct = (coincidencias / validas * 100) if validas > 0 else 0
+    
+    if pct == 100.0:
+        pares_confirmados.append({
+            'ID_original': min(fila_a['ID'], fila_b['ID']),
+            'ID_reenvio': max(fila_a['ID'], fila_b['ID']),
+            '% Coincidencia': pct,
+            'Items comparables': validas
+        })
+
+df_confirmados = pd.DataFrame(pares_confirmados)
+print(f"Nivel 2 - Reenvíos confirmados (100% coincidencia Likert): {len(df_confirmados)}")
+
+if len(df_confirmados) > 0:
+    print("\nPares de reenvíos confirmados:")
+    display(df_confirmados)
+
+# ── Verificar distribución de reenvíos por sector y cargo ────────────────────
+# Si los reenvíos se concentran en un sector/cargo específico, eliminar
+# el segundo registro podría sesgar la representación de ese grupo.
+ids_a_eliminar = df_confirmados['ID_reenvio'].tolist() if len(df_confirmados) > 0 else []
+
+if len(ids_a_eliminar) > 0:
+    df_reenvios = df[df['ID'].isin(ids_a_eliminar)]
+    
+    print("\nDistribución de reenvíos por Sector:")
+    print(df_reenvios['Sector'].value_counts().to_string())
+    
+    print("\nDistribución de reenvíos por Tipo_Cargo:")
+    print(df_reenvios['Tipo_Cargo'].value_counts().to_string())
+    
+    print("\nTasa de reenvíos sobre el total de cada sector:")
+    for sector in sorted(df['Sector'].dropna().unique()):
+        n_total = (df['Sector'] == sector).sum()
+        n_dup = (df_reenvios['Sector'] == sector).sum()
+        if n_total >= 10:
+            print(f"  {sector}: {n_dup}/{n_total} = {n_dup/n_total*100:.1f}%")
+    
+    # Observación sobre concentración temporal de los reenvíos
+    print(f"\nRango de IDs de reenvíos: {min(ids_a_eliminar)} - {max(ids_a_eliminar)}")
+    print(f"Rango total de IDs en el dataset: {df['ID'].min()} - {df['ID'].max()}")
+
+# ── Eliminación ──────────────────────────────────────────────────────────────
+df = df[~df['ID'].isin(ids_a_eliminar)].reset_index(drop=True)
+n_despues = len(df)
+n_eliminados = n_antes - n_despues
+print(f"\nRegistros eliminados : {n_eliminados}")
+print(f"Registros DESPUÉS    : {n_despues}")
+
+# ── Verificación ─────────────────────────────────────────────────────────────
+# Confirmar que no quedan reenvíos del formulario en el dataset
+dup_residuales = df.duplicated(subset=SUBSET_LOGICO).sum()
+
+if dup_residuales > 0:
+    print(f"\nNota: Quedan {dup_residuales} filas con perfil sociolaboral similar,")
+    print("pero fueron validadas como personas distintas (coincidencia Likert <100%).")
+else:
+    print("\nVerificación superada: cero reenvíos residuales en el dataset.")
+
+# ── Resumen ──────────────────────────────────────────────────────────────────
+print(f"\n{'Métrica':<35} {'Antes':>8} {'Después':>8}")
+print(f"{'─'*53}")
+print(f"{'N registros':<35} {n_antes:>8} {n_despues:>8}")
+print(f"{'Reenvíos detectados (Likert 100%)':<35} {len(df_confirmados):>8} {0:>8}")
+print(f"{'Candidatos descartados (≠ persona)':<35} {dup_mask.sum()//2 - len(df_confirmados):>8} {dup_residuales//2:>8}")
+
+
+--- Cell 56 ---
+df_antes_strip = df.copy()
+
+# Aplicar strip a TODAS las columnas object
+obj_cols = df.select_dtypes(include='object').columns.tolist()
+
+celdas_modificadas = 0
+for col in obj_cols:
+    original = df[col].copy()
+    df[col] = df[col].str.strip()
+    diff = (original != df[col]) & original.notna() & df[col].notna()
+    celdas_modificadas += int(diff.sum())
+
+print(f"Columnas object procesadas : {len(obj_cols)}")
+print(f"Celdas modificadas por strip: {celdas_modificadas}")
+
+# Verificación: '  Presencial  ' → 'Presencial'
+print(f"\nModalidad antes : {df_antes_strip['Modalidad'].unique()}")
+print(f"Modalidad después: {df['Modalidad'].unique()}")
+
+
+--- Cell 59 ---
+# Variables nominales sobre las que se aplica .str.title()
+# (NO se aplica a variables ordinales con texto como las escalas Likert)
+VARS_TITLE = ['Sexo', 'Estado_Civil', 'Sector', 'Tipo_Cargo', 'Modalidad',
+              'Zona_Vivienda', 'Trabajo_Turnos', 'Tipo_Contrato', 'Personas_Cargo']
+
+log_title = {}
+for col in VARS_TITLE:
+    if df[col].dtype == object:
+        antes = df[col].nunique(dropna=True)
+        df[col] = df[col].str.title()
+        despues = df[col].nunique(dropna=True)
+        log_title[col] = {'antes': antes, 'despues': despues,
+                          'reduccion': antes - despues}
+
+print("=== Reducción de categorías por .str.title() ===")
+for col, info in log_title.items():
+    if info['reduccion'] > 0:
+        print(f"  {col}: {info['antes']} → {info['despues']} categorías "
+              f"(−{info['reduccion']} categorías fantasma)")
+
+print()
+print("Sexo después de title:")
+print(df['Sexo'].value_counts().to_string())
+print()
+print("Estado_Civil después de title:")
+print(df['Estado_Civil'].value_counts().to_string())
+print()
+print("Sector después de title:")
+print(df['Sector'].value_counts().to_string())
+
+
+--- Cell 62 ---
+# Nota: las variantes de capitalización ('MUJER', 'hombre', 'CASADO', etc.)
+# ya fueron resueltas en el paso anterior con .str.title().
+# Este diccionario corrige SOLO los errores tipográficos genuinos que
+# la normalización de mayúsculas no puede resolver.
+DICT_CORRECCIONES = {
+    'Sexo': {
+        # 'Mujer ' y 'Hombre ' (con espacio) no son necesarias:
+        # el strip() de la Seccion 3.1 ya elimino esos espacios antes de llegar aqui.
+        'Mjer':              'Mujer',
+        'Hombree':           'Hombre',
+        'Prefiero No Decir': 'Prefiero no decir',
+    },
+    'Estado_Civil': {
+        'Casdo':       'Casado',
+        'Solero':      'Soltero',
+        'Unión Libre': 'Unión libre',
+    },
+    'Sector': {
+        'Mixo':    'Mixto',
+        'Publico': 'Público',
+    },
+    'Tipo_Cargo': {
+        'Adminstrativo': 'Administrativo',
+        'Opearativo':    'Operativo',
+    },
+}
+
+
+def corregir_typos(df, diccionario):
+    """Aplica correcciones de typos. Registra cuántos valores cambiaron por columna."""
+    df = df.copy()
+    log = {}
+    for col, mapeo in diccionario.items():
+        if col not in df.columns:
+            continue
+        n_cambios = 0
+        antes_vals = df[col].value_counts(dropna=False).to_dict()
+        df[col] = df[col].replace(mapeo)
+        despues_vals = df[col].value_counts(dropna=False).to_dict()
+        for val_malo, val_bueno in mapeo.items():
+            n_cambios += int(antes_vals.get(val_malo, 0))
+        log[col] = {
+            'n_cambios': n_cambios,
+            'n_cats_antes': len(antes_vals) - (1 if __import__('numpy').nan in antes_vals else 0),
+            'n_cats_despues': len(despues_vals) - (1 if __import__('numpy').nan in despues_vals else 0),
+        }
+    return df, log
+
+df, log_correcciones = corregir_typos(df, DICT_CORRECCIONES)
+
+print("=== Log de correcciones ===")
+for col, info in log_correcciones.items():
+    print(f"  {col}: {info['n_cambios']} valores corregidos | "
+          f"categorías: {info['n_cats_antes']} -> {info['n_cats_despues']}")
+
+
+--- Cell 64 ---
+print("=== Verificación final de variables corregidas ===")
+
+for col in DICT_CORRECCIONES.keys():
+    print(f"\n  {col}:")
+    print(df[col].value_counts(dropna=False).to_string())
+
+# Tabla antes / después formal
+print()
+print("=== Tabla antes/después ===")
+comparativa = []
+for col in DICT_CORRECCIONES.keys():
+    comparativa.append({
+        'Variable': col,
+        'Cats_original': df_original[col].nunique(dropna=True),
+        'Cats_limpias': df[col].nunique(dropna=True),
+        'Reduccion': df_original[col].nunique(dropna=True) - df[col].nunique(dropna=True)
+    })
+display(pd.DataFrame(comparativa))
+
+# Assert: Sexo debe tener 3 categorías (Hombre, Mujer, Prefiero no decir)
+assert df['Sexo'].nunique(dropna=True) <= 3, "Sexo tiene más de 3 categorías"
+# Assert: Sector debe tener 3 categorías
+assert df['Sector'].nunique(dropna=True) <= 4, "Sector tiene más categorías de las esperadas"
+print("✔ Asserts de categorías finales superados")
+
+
+--- Cell 67 ---
+# ═══════════════════════════════════════════════════════════════════════════
+# PASO 1: Normalización universal de capitalización y espacios
+# ═══════════════════════════════════════════════════════════════════════════
+# Esto aplica a TODAS las columnas Likert por igual, eliminando inconsistencias
+# de mayúsculas/minúsculas y espacios en blanco accidentales en un solo paso.
+
+todas_likert = COLS_FREC + COLS_BU_FREC + COLS_SOMATIZ + DIMS['SAT'] + \
+               DIMS['RETIRO'] + DIMS['FAM_TRAB'] + DIMS['TRAB_FAM']
+
+cambios_normalizacion = 0
+for col in todas_likert:
+    if df[col].dtype == object:
+        original = df[col].copy()
+        # strip elimina espacios al inicio/final, str.title() pone primera letra mayúscula
+        df[col] = df[col].str.strip().str.capitalize()
+        cambios = (original != df[col]) & original.notna()
+        cambios_normalizacion += int(cambios.sum())
+
+print(f"Valores normalizados (capitalización + espacios): {cambios_normalizacion}")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PASO 2: Corrección de typos y sinónimos (solo donde aplica)
+# ═══════════════════════════════════════════════════════════════════════════
+# Después de normalizar, solo quedan estas variantes "reales" por resolver:
+
+# Para escala FRECUENCIA 1-5 (CT, PT, CL, AC, CR, CoR, GC, SM)
+# Aquí 'A menudo' y 'Raramente' son sinónimos que se mapean a la canónica
+MAP_SINONIMOS_FREC = {
+    'Siempree':   'Siempre',           # typo
+    'Frecuente':  'Frecuentemente',    # abreviación
+    'A menudo':   'Frecuentemente',    # sinónimo
+    'Alguna vez': 'Algunas veces',     # sinónimo
+    'Raramente':  'Rara vez',          # sinónimo
+}
+
+cambios_sinonimos_frec = 0
+for col in COLS_FREC:
+    if df[col].dtype == object:
+        original = df[col].copy()
+        df[col] = df[col].replace(MAP_SINONIMOS_FREC)
+        cambios = (original != df[col]) & original.notna()
+        cambios_sinonimos_frec += int(cambios.sum())
+
+# Para BURNOUT: aquí 'A menudo' y 'Raramente' SÍ son canónicas, no se cambian
+# Solo corregimos typos si aparecen
+MAP_SINONIMOS_BU = {
+    'Siempree': 'Siempre',  # typo si apareciera
+}
+
+cambios_sinonimos_bu = 0
+for col in COLS_BU_FREC:
+    if df[col].dtype == object:
+        original = df[col].copy()
+        df[col] = df[col].replace(MAP_SINONIMOS_BU)
+        cambios = (original != df[col]) & original.notna()
+        cambios_sinonimos_bu += int(cambios.sum())
+
+# Para SOMATIZACIÓN/DESGASTE: las etiquetas ya son canónicas, no requiere mapeo extra
+# (a menos que detectes typos específicos)
+
+print(f"Sinónimos/typos corregidos en frecuencia 1-5: {cambios_sinonimos_frec}")
+print(f"Sinónimos/typos corregidos en Burnout      : {cambios_sinonimos_bu}")
+print(f"Total cambios totales                       : "
+      f"{cambios_normalizacion + cambios_sinonimos_frec + cambios_sinonimos_bu}")
+
+print("\nValores únicos restantes en CT2:")
+print(df['CT2'].value_counts(dropna=False))
+print("\nValores únicos restantes en BU1:")
+print(df['BU1'].value_counts(dropna=False))
+
+--- Cell 71 ---
+# ── Escala frecuencia 1-5 (CT, PT, CL, AC, CR, CoR, GC, SM) ─────────────────
+MAP_FRECUENCIA = {
+    'Nunca':         1,
+    'Rara vez':      2,
+    'Algunas veces': 3,
+    'Frecuentemente':4,
+    'Siempre':       5,
+}
+
+# ── Escala acuerdo 1-7 (SAT, IR, FT, TF) ────────────────────────────────────
+# Labels reales del dataset (no los del enunciado que difieren ligeramente)
+MAP_ACUERDO = {
+    'Muy en desacuerdo':              1,
+    'Moderadamente en desacuerdo':    2,
+    'Algo en desacuerdo':             3,
+    'Ni de acuerdo ni en desacuerdo': 4,
+    'Algo de acuerdo':                5,
+    'Moderadamente de acuerdo':       6,
+    'Muy de acuerdo':                 7,
+}
+
+# ── Escala Burnout 1-5 (BU) ──────────────────────────────────────────────────
+MAP_BURNOUT = {
+    'Nunca':         1,
+    'Raramente':     2,
+    'Algunas veces': 3,
+    'A menudo':      4,
+    'Siempre':       5,
+}
+
+# ── Escala somatización / desgaste 1-7 (SOM, DL) ────────────────────────────
+MAP_SOMATIZ = {
+    'Nunca':          1,
+    'Raramente':      2,
+    'Ocasionalmente': 3,
+    'Algunas veces':  4,
+    'Frecuentemente': 5,
+    'Casi siempre':   6,
+    'Siempre':        7,
+}
+
+# ── Función reutilizable de mapeo ─────────────────────────────────────────────
+def aplicar_mapeo(df, cols, mapeo, nombre_escala):
+    """Aplica mapeo texto→número a una lista de columnas. Reporta valores no mapeados."""
+    n_mapeados = 0
+    no_mapeados = {}
+    for col in cols:
+        if col not in df.columns:
+            continue
+        if df[col].dtype == object:
+            antes_no_null = df[col].notna().sum()
+            df[col] = df[col].map(mapeo)
+            # Convertir a numérico (valores ya convertidos; los no mapeados → NaN)
+            n_mapeados += int(df[col].notna().sum())
+            # Detectar valores que no se mapearon (quedaron NaN pero no eran NaN antes)
+            # (ya no es posible recuperarlos, pero registramos el delta)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    print(f"  [{nombre_escala}] {len(cols)} columnas procesadas → "
+          f"{n_mapeados} valores numéricos asignados")
+    return df
+
+print("Aplicando mapeos de escala:")
+df = aplicar_mapeo(df, COLS_FREC,    MAP_FRECUENCIA, 'Frecuencia 1-5')
+df = aplicar_mapeo(df, COLS_ACUERDO, MAP_ACUERDO,    'Acuerdo 1-7')
+df = aplicar_mapeo(df, COLS_BU_FREC, MAP_BURNOUT,    'Burnout 1-5')
+df = aplicar_mapeo(df, COLS_SOMATIZ, MAP_SOMATIZ,    'Somatización/Desgaste 1-7')
+
+print()
+print("Muestra post-mapeo — CT1:")
+print(df['CT1'].value_counts(dropna=False).head())
+print("\nMuestra post-mapeo — SAT1:")
+print(df['SAT1'].value_counts(dropna=False).head())
+
+
+--- Cell 74 ---
+MAP_PALABRAS_NUMERO = {
+    'uno':    1, 'dos':    2, 'tres':   3, 'cuatro': 4,
+    'cinco':  5, 'seis':   6, 'siete':  7,
+    'Uno':    1, 'Dos':    2, 'Tres':   3, 'Cuatro': 4,
+    'Cinco':  5, 'Seis':   6, 'Siete':  7,
+    'UNO':    1, 'DOS':    2, 'TRES':   3, 'CUATRO': 4,
+    'CINCO':  5, 'SEIS':   6, 'SIETE':  7,
+}
+
+# Detectar automáticamente celdas con texto en BP antes de corregir
+bp_texto_cols = ['BP1', 'BP2', 'BP3', 'BP4', 'BP5']
+total_texto_bp = 0
+
+print("=== Detección de celdas con texto en BP antes de corregir ===")
+for col in bp_texto_cols:
+    # Celdas que no son numéricas (pueden ser palabras o string numérico)
+    mask_texto = df[col].apply(
+        lambda x: isinstance(x, str) and not x.lstrip('-').replace('.','').isdigit()
+        if pd.notna(x) else False
+    )
+    n_texto = int(mask_texto.sum())
+    total_texto_bp += n_texto
+    print(f"  {col}: {n_texto} celdas con palabra (ej: {df.loc[mask_texto, col].unique()[:4]})")
+
+print(f"\nTotal celdas con texto en BP1-BP5: {total_texto_bp}")
+print()
+
+# Aplicar corrección: primero palabras → número, luego string numérico → número
+for col in bp_texto_cols:
+    df[col] = df[col].replace(MAP_PALABRAS_NUMERO)
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+# BP6-BP10 ya son float64, solo asegurar numérico limpio
+for col in ['BP6', 'BP7', 'BP8', 'BP9', 'BP10']:
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+print("Post-corrección — BP1 value_counts:")
+print(df['BP1'].value_counts(dropna=False).sort_index().to_string())
+
+
+--- Cell 76 ---
+print("=== IR1 ANTES de inversión ===")
+print(df['IR1'].value_counts(dropna=False).sort_index())
+
+# Invertir: 8 - IR1
+# Justificación: IR1 está redactado en sentido opuesto al resto de la dimensión
+# RETIRO. Sin inversión, quien responde 7 (muy de acuerdo con IR1) tiene la
+# intención de retirarse, que debería ser la puntuación máxima en la dimensión.
+# Con la inversión, 8-7=1 → bajo puntaje en RETIRO (no quiere retirarse).
+df['IR1'] = 8 - df['IR1']
+
+print()
+print("=== IR1 DESPUÉS de inversión (8 - IR1) ===")
+print(df['IR1'].value_counts(dropna=False).sort_index())
+
+# Verificar que la distribución se invirtió (media ~ 8 - media_original)
+print(f"\nMedia IR1 después: {df['IR1'].mean():.2f}")
+print(f"Media IR2 (no invertido, referencia): {df['IR2'].mean():.2f}")
+
+
+--- Cell 79 ---
+print("=== VERIFICACIONES DE RANGO ===")
+errores = []
+
+for col in COLS_FREC + COLS_BU_FREC:
+    if col in df.columns:
+        fuera = df[col].dropna()
+        fuera = fuera[~fuera.between(1, 5)]
+        if len(fuera) > 0:
+            errores.append(f"{col}: {len(fuera)} valores fuera de [1,5]: {fuera.unique()[:3]}")
+
+for col in COLS_ACUERDO + COLS_SOMATIZ + COLS_BP:
+    if col in df.columns:
+        fuera = df[col].dropna()
+        fuera = fuera[~fuera.between(1, 7)]
+        if len(fuera) > 0:
+            errores.append(f"{col}: {len(fuera)} valores fuera de [1,7]: {fuera.unique()[:3]}")
+
+if errores:
+    print("⚠ ERRORES DE RANGO DETECTADOS:")
+    for e in errores:
+        print(f"  {e}")
+else:
+    print("✔ Ningún valor fuera del rango teórico en ninguna columna de escala")
+
+# Verificar que ninguna columna de escala sigue siendo object
+cols_escala_obj = [c for c in COLS_ESCALA if df[c].dtype == object]
+print(f"\nColumnas de escala todavía object: {cols_escala_obj}")
+assert len(cols_escala_obj) == 0, f"Hay columnas de escala object: {cols_escala_obj}"
+print("✔ Todas las columnas de escala son numéricas")
+
+# Muestra de estadísticos finales
+print()
+print("=== Estadísticos descriptivos de muestra de columnas ===")
+muestra_cols = ['CT1', 'SAT1', 'BU1', 'SOM1', 'BP1', 'IR1']
+display(df[muestra_cols].describe().round(2))
+
+
+--- Cell 83 ---
+# Estado del df al inicio de la Sección 5.
+# Los códigos nulos heterogéneos (999, -1, ?, --) ya fueron convertidos a NaN
+# en la Sección 1.4. Esta celda confirma el estado actual.
+
+faltantes_inicio = int(df.isnull().sum().sum())
+total_celdas = df.shape[0] * df.shape[1]
+
+print(f"Shape del dataset: {df.shape}")
+print(f"Total celdas vacías NaN: {faltantes_inicio:,}")
+print(f"Porcentaje del total: {faltantes_inicio / total_celdas * 100:.2f}%")
+print(f"Columnas con al menos 1 faltante: {(df.isnull().sum() > 0).sum()}")
+print()
+
+miss_detalle = df.isnull().sum()
+miss_detalle = miss_detalle[miss_detalle > 0].sort_values(ascending=False)
+
+tabla_estado = pd.DataFrame({
+    'n_faltantes': miss_detalle,
+    'pct': (miss_detalle / len(df) * 100).round(2),
+    'tipo': ['escala' if c in COLS_ESCALA else 'sociodem/num'
+             for c in miss_detalle.index]
+})
+print("Top 20 columnas con faltantes:")
+display(tabla_estado.head(20))
+
+print()
+print("Columnas no-escala con faltantes:")
+print({c: int(df[c].isnull().sum()) for c in miss_detalle.index
+       if c not in COLS_ESCALA})
+
+
+--- Cell 86 ---
+import missingno as msno
+
+fig, axes = plt.subplots(1, 2, figsize=(18, 5))
+
+msno.matrix(df, ax=axes[0], color=(0.18, 0.46, 0.71),
+            sparkline=False, labels=False, fontsize=7)
+axes[0].set_title("Patrón visual de faltantes — inicio Sección 5",
+                  fontsize=12, fontweight='bold')
+
+msno.bar(df, ax=axes[1], color='#2e75b6', fontsize=7)
+axes[1].set_title("Completitud por columna (%)", fontsize=12, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig('figures/5A_patron_faltantes.png', dpi=100, bbox_inches='tight')
+plt.show()
+print("Huecos dispersos sin bloques → señal de MCAR")
+print("Huecos en bloques por fila/columna → señal de MAR o MNAR")
+
+
+--- Cell 87 ---
+# Si los faltantes se concentran en un grupo demográfico → MAR
+# Si están distribuidos uniformemente → MCAR
+
+vars_demo = [v for v in ['Sector', 'Modalidad', 'Tipo_Cargo'] if v in df.columns]
+cols_escala_con_faltantes = [c for c in COLS_ESCALA if df[c].isnull().sum() > 0]
+
+print(f"Columnas de escala con faltantes: {len(cols_escala_con_faltantes)}")
+print()
+
+resultados_tasas = {}
+for var_demo in vars_demo:
+    print(f"Tasa de faltantes en ítems de escala, por {var_demo}:")
+    tasas_grupo = {}
+    for grupo in sorted(df[var_demo].dropna().unique()):
+        mask = df[var_demo] == grupo
+        n_celdas = int(mask.sum()) * len(cols_escala_con_faltantes)
+        n_falt = int(df.loc[mask, cols_escala_con_faltantes].isnull().sum().sum())
+        tasa = round(n_falt / n_celdas * 100, 2) if n_celdas > 0 else 0
+        tasas_grupo[grupo] = tasa
+        print(f"  {grupo}: {tasa}%")
+    max_t = max(tasas_grupo.values()); min_t = min(tasas_grupo.values())
+    dif = round(max_t - min_t, 2)
+    print(f"  Diferencia max-min: {dif}%"
+          f" {'(< 3%, compatible con MCAR)' if dif < 3 else '(>= 3%, posible MAR)'}")
+    resultados_tasas[var_demo] = {'tasas': tasas_grupo, 'diferencia': dif}
+    print()
+
+
+--- Cell 89 ---
+from scipy.stats import chi2_contingency
+
+vars_analizar = [c for c in COLS_ESCALA
+                 if df[c].isnull().sum() > 0]
+vars_analizar = sorted(vars_analizar,
+                       key=lambda c: df[c].isnull().sum(),
+                       reverse=True)[:8]
+
+resultados_chi2 = {}
+print("=== Test chi2: faltante vs Sector ===")
+print("H0: los faltantes son independientes del sector (MCAR)")
+print()
+for col in vars_analizar:
+    try:
+        tabla = pd.crosstab(df['Sector'].fillna('Sin_dato'), df[col].isna())
+        if tabla.shape[1] < 2:
+            continue
+        chi2_val, p, dof, _ = chi2_contingency(tabla)
+        mecanismo = 'MAR' if p < 0.05 else 'MCAR'
+        resultados_chi2[col] = {'chi2': round(chi2_val, 3), 'p': round(p, 4),
+                                'mecanismo': mecanismo}
+        sig = 'Significativo -> MAR' if p < 0.05 else 'No significativo -> MCAR'
+        print(f"  {col}: chi2={chi2_val:.3f}, p={p:.4f} -> {sig}")
+    except Exception as e:
+        print(f"  {col}: error ({e})")
+
+print()
+cols_mcar = [c for c, r in resultados_chi2.items() if r['mecanismo'] == 'MCAR']
+cols_mar  = [c for c, r in resultados_chi2.items() if r['mecanismo'] == 'MAR']
+total_test = len(resultados_chi2)
+print(f"Columnas MCAR (p>=0.05): {len(cols_mcar)} de {total_test}")
+print(f"Columnas MAR  (p<0.05) : {len(cols_mar)} de {total_test}")
+print()
+
+if len(cols_mar) == 0:
+    mecanismo_global = 'MCAR'
+    conclusion_chi2 = 'Todos los tests son no significativos. Mecanismo: MCAR.'
+elif len(cols_mar) / total_test <= 0.3:
+    mecanismo_global = 'predominantemente MCAR'
+    conclusion_chi2 = f'Mayoria MCAR. {len(cols_mar)} columnas con indicio MAR.'
+else:
+    mecanismo_global = 'MAR'
+    conclusion_chi2 = 'Los faltantes muestran patron MAR condicionado por sector.'
+
+print(f"MECANISMO GLOBAL: {mecanismo_global}")
+print(f"CONCLUSION: {conclusion_chi2}")
+
+
+--- Cell 93 ---
+from sklearn.impute import SimpleImputer, KNNImputer
+
+# Snapshot ANTES de cualquier imputación (para comparación en Fase C)
+df_preimputation = df.copy()
+print(f"Snapshot guardado: {df_preimputation.isnull().sum().sum()} faltantes")
+print()
+
+log_imputacion = {}
+
+# ── 1. Categóricas con moda ──────────────────────────────────────────────────
+cols_cat_falt = [c for c in COLS_SOCIODEM
+                 if df[c].dtype == object and df[c].isnull().any()]
+print(f"Columnas categóricas con faltantes: {cols_cat_falt}")
+if cols_cat_falt:
+    n_antes_cat = {c: int(df[c].isnull().sum()) for c in cols_cat_falt}
+    imp_moda = SimpleImputer(strategy='most_frequent')
+    df[cols_cat_falt] = imp_moda.fit_transform(df[cols_cat_falt])
+    for col in cols_cat_falt:
+        log_imputacion[col] = {'n_imputados': n_antes_cat[col], 'metodo': 'moda',
+                               'valor_imputado': 'moda'}
+        print(f"  {col}: {n_antes_cat[col]} valores imputados")
+    print("Imputacion categoricas completada")
+else:
+    print("Sin columnas categoricas con faltantes (esperado segun diagnostico)")
+
+# ── 2. Escala con mediana por columna (dentro de su dimensión) ──────────────
+print()
+print("Imputacion por mediana por columna:")
+for dim, items in DIMS.items():
+    items_en_df = [c for c in items if c in df.columns]
+    n_falt_dim = int(df[items_en_df].isnull().sum().sum())
+    if n_falt_dim > 0:
+        for col in items_en_df:
+            n_col = int(df[col].isnull().sum())
+            if n_col > 0:
+                mediana_col = df[col].median()
+                df[col] = df[col].fillna(mediana_col)
+                log_imputacion[col] = {
+                    'n_imputados': n_col,
+                    'metodo': f'mediana_{dim}',
+                    'valor_imputado': round(mediana_col, 2)
+                }
+        print(f"  {dim}: {n_falt_dim} celdas imputadas")
+
+# ── 3. Numéricas con mediana ─────────────────────────────────────────
+print()
+print("Imputacion variables numericas continuas:")
+for col in ['Edad', 'Horas_Semana', 'Horas_Formacion']:
+    if col not in df.columns:
+        continue
+    n_falt = int(df[col].isnull().sum())
+    if n_falt > 0:
+        mediana = df[col].median()
+        df[col] = df[col].fillna(mediana)
+        log_imputacion[col] = {
+            'n_imputados': n_falt,
+            'metodo': 'mediana_robusta',
+            'valor_imputado': round(mediana, 1)
+        }
+        print(f"  {col}: {n_falt} valores imputados con mediana={mediana:.1f}")
+    else:
+        print(f"  {col}: sin faltantes")
+
+
+--- Cell 94 ---
+# Comparación KNN vs mediana sobre el snapshot pre-imputación
+cols_esc_val = [c for c in COLS_ESCALA if c in df_preimputation.columns]
+df_knn_input = df_preimputation[cols_esc_val].copy()
+for col in df_knn_input.columns:
+    df_knn_input[col] = pd.to_numeric(df_knn_input[col], errors='coerce')
+print(f"Faltantes en entrada KNN: {df_knn_input.isnull().sum().sum()}")
+
+knn = KNNImputer(n_neighbors=5)
+df_knn_arr = knn.fit_transform(df_knn_input)
+df_knn = pd.DataFrame(df_knn_arr, columns=cols_esc_val, index=df_knn_input.index)
+print(f"KNN completado. Shape salida: {df_knn.shape}")
+print()
+
+# Top 3 columnas con más faltantes en el snapshot para comparar
+top3 = (df_preimputation[cols_esc_val].isnull().sum()
+        .sort_values(ascending=False).head(3).index.tolist())
+print(f"Columnas comparadas (top 3 con mas faltantes): {top3}")
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+for i, col in enumerate(top3):
+    ax = axes[i]
+    ax.hist(df[col].dropna(), bins=7, alpha=0.6, color=PALETA[0],
+            label='Mediana/dim', density=True)
+    ax.hist(df_knn[col].dropna(), bins=7, alpha=0.6, color=PALETA[3],
+            label='KNN k=5', density=True)
+    ax.set_title(f'{col}', fontsize=11)
+    ax.set_xlabel('Valor'); ax.set_ylabel('Densidad'); ax.legend(fontsize=9)
+
+plt.suptitle('Comparacion: Mediana por columna vs KNNImputer (k=5)',
+             fontsize=12, fontweight='bold')
+plt.tight_layout()
+plt.savefig('figures/5B_comparacion_mediana_vs_knn.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+
+--- Cell 97 ---
+# Verificación 1: cero faltantes residuales
+faltantes_finales = int(df.isnull().sum().sum())
+print(f"Faltantes residuales post-imputacion: {faltantes_finales}")
+assert faltantes_finales == 0, f"Quedan {faltantes_finales} faltantes sin imputar"
+print("assert superado: cero faltantes en el dataset")
+print()
+
+# Tabla detallada por columna
+tabla_imp = pd.DataFrame([
+    {'Columna': col,
+     'N_imputados': info['n_imputados'],
+     'Metodo': info['metodo'],
+     'Valor_imputado': info.get('valor_imputado', 'moda')}
+    for col, info in log_imputacion.items()
+    if info['n_imputados'] > 0
+]).sort_values('N_imputados', ascending=False).reset_index(drop=True)
+
+print("=== Tabla de valores imputados por columna ===")
+display(tabla_imp)
+print()
+print(f"Total columnas con imputacion: {len(tabla_imp)}")
+print(f"Total valores imputados: {tabla_imp['N_imputados'].sum()}")
+
+print()
+print("=== Resumen por metodo ===")
+resumen = tabla_imp.groupby('Metodo')['N_imputados'].agg(['count', 'sum'])
+resumen.columns = ['N_columnas', 'N_valores']
+display(resumen)
+
+
+--- Cell 98 ---
+# Tomar las 4 columnas de escala con más imputaciones
+cols_visual = [c for c in tabla_imp['Columna'].tolist() if c in COLS_ESCALA][:4]
+print(f"Columnas graficadas: {cols_visual}")
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+axes = axes.flatten()
+
+for i, col in enumerate(cols_visual):
+    ax = axes[i]
+    n_imp = int(tabla_imp.loc[tabla_imp['Columna'] == col, 'N_imputados'].iloc[0])
+    if col in df_preimputation.columns:
+        antes = df_preimputation[col].dropna()
+        ax.hist(antes, bins=7, alpha=0.5, color='#9dc3e6',
+                label=f'Antes (n={len(antes)}, con faltantes)', density=True)
+    ax.hist(df[col], bins=7, alpha=0.7, color=PALETA[0],
+            label=f'Despues (n={len(df[col])}, completo)', density=True)
+    ax.set_title(f'{col} — {n_imp} valores imputados', fontsize=11)
+    ax.set_xlabel('Valor en la escala'); ax.set_ylabel('Densidad relativa')
+    ax.legend(fontsize=9)
+
+for j in range(len(cols_visual), 4):
+    axes[j].set_visible(False)
+
+plt.suptitle('Distribucion antes (azul claro) vs despues de imputacion (azul oscuro)',
+             fontsize=12, fontweight='bold')
+plt.tight_layout()
+plt.savefig('figures/5C_distribucion_antes_despues.png', dpi=100, bbox_inches='tight')
+plt.show()
+
+
+--- Cell 102 ---
+reporte_final = reporte_calidad(df, "Dataset Limpio (Secciones 0-5)")
+
+print()
+print("=== COMPARATIVO ANTES / DESPUÉS ===")
+print(f"{'Métrica':<35} {'Antes':>12} {'Después':>12}")
+print('─' * 62)
+print(f"{'N registros':<35} {baseline['filas']:>12} {reporte_final['filas']:>12}")
+print(f"{'N columnas':<35} {baseline['columnas']:>12} {reporte_final['columnas']:>12}")
+print(f"{'Faltantes totales':<35} {baseline['faltantes_total']:>12} {reporte_final['faltantes_total']:>12}")
+print(f"{'% faltantes':<35} {baseline['pct_faltantes']:>11}% {reporte_final['pct_faltantes']:>11}%")
+print(f"{'Columnas con faltantes':<35} {baseline['cols_con_faltantes']:>12} {reporte_final['cols_con_faltantes']:>12}")
+print(f"{'Duplicados exactos':<35} {baseline['n_duplicados']:>12} {reporte_final['n_duplicados']:>12}")
+print(f"{'Cols escala como object':<35} {baseline['cols_escala_object']:>12} {reporte_final['cols_escala_object']:>12}")
+print(f"{'Fuera de rango 1-5':<35} {baseline['fuera_rango_1_5']:>12} {reporte_final['fuera_rango_1_5']:>12}")
+print(f"{'Fuera de rango 1-7':<35} {baseline['fuera_rango_1_7']:>12} {reporte_final['fuera_rango_1_7']:>12}")
+
+print()
+print("=== SECCIONES COMPLETADAS ===")
+print("  ✔ Sección 0: Configuración y carga")
+print("  ✔ Sección 1: Auditoría inicial — 12 problemas documentados")
+print("  ✔ Sección 2: Duplicados lógicos eliminados")
+print("  ✔ Sección 3: Texto estandarizado (strip, title, corrección typos)")
+print("  ✔ Sección 4: Escalas Likert codificadas, BP corregido, IR1 invertido")
+print("  ✔ Sección 5: Faltantes imputados (moda, mediana/dim, mediana robusta)")
+
+
+--- Cell 106 ---
+outlier_cols = [
+    "Edad",
+    "Horas_Semana",
+    "Horas_Formacion",
+]
+
+df[outlier_cols ]
+
+--- Cell 107 ---
+print("\n=== Dtypes agrupados ===")
+dtype_summary = df.dtypes.value_counts().reset_index()
+dtype_summary.columns = ['dtype', 'n_columnas']
+display(dtype_summary)
+
+--- Cell 108 ---
+for col in df.select_dtypes(include='object').columns:
+    print(col)
+
+--- Cell 110 ---
+atipicos_RIQ = {}
+columnas_out_RIQ = 0
+for col in outlier_cols:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    RIQ = Q3 - Q1
+    Lim_Sup = Q3 + 1.5*RIQ
+    Lim_Inf = Q1 - 1.5*RIQ
+    Out_Sup = df[df[col]> Lim_Sup]
+    Out_Inf = df[df[col]< Lim_Inf]
+    df_out_RIQ = df[(df[col] > Lim_Sup) | (df[col] < Lim_Inf)]
+    if (len(Out_Sup) > 0) or (len(Out_Inf) > 0):
+        print(f"Para la columna {col}: ")
+        print(f"Limite Superior: {Lim_Sup}")
+        print(f"- Outliers Superiores: {len(Out_Sup)}")
+        print(f"Limite Inferior: {Lim_Inf}")
+        print(f"- Outliers Inferiores: {len(Out_Inf)}")
+        print(f"- Total Outliers: {len(df_out_RIQ)}")
+        print(f"- % del Total: {len(df_out_RIQ)*100/len(df[col]):.2f}")
+        columnas_out_RIQ += 1
+        atipicos_RIQ[col] = df_out_RIQ
+        print("-"*50)
+print(f"Total Columnas Numéricas: {len(df.select_dtypes(include='number').columns)}")
+print("-"*50)
+print(f"Columnas con Outliers: {columnas_out_RIQ}")
+print("-"*50)
+print(f"Columnas sin Outliers: {len(df.select_dtypes(include='number').columns) - columnas_out_RIQ}")
+
+--- Cell 112 ---
+atipicos_Z = {}
+columnas_out_Z = 0
+
+for col in outlier_cols:
+    datos = df[col]
+    mediana = np.median(datos)
+    mad = np.median(np.abs(datos - mediana))
+    if mad == 0:
+        continue
+    z_mod = 0.6745 * (datos - mediana) / mad
+    out_sup = datos[z_mod > 3.5]
+    out_inf = datos[z_mod < -3.5]
+    df_out_Z = datos[(z_mod > 3.5) | (z_mod < -3.5)]
+    lim_sup = mediana + (3.5 * mad / 0.6745)
+    lim_inf = mediana - (3.5 * mad / 0.6745)
+    if (len(out_sup) > 0) or (len(out_inf) > 0):
+        print(f"Para la columna {col}:")
+        print(f"- Límite Superior: {lim_sup}")
+        print(f"- Límite Inferior: {lim_inf}")
+        print(f"- Outliers Superiores: {len(out_sup)}")
+        print(f"- Outliers Inferiores: {len(out_inf)}")
+        print(f"- Total Outliers: {len(df_out_Z)}")
+        print(f"- % del Total: {len(df_out_Z)*100/len(datos):.2f}")
+        columnas_out_Z += 1
+        atipicos_Z[col] = df_out_Z
+        print("-" * 50)
+
+print(f"Total Columnas Numéricas: {len(df.select_dtypes(include='number').columns)}")
+print("-" * 50)
+print(f"Columnas con Outliers: {columnas_out_Z}")
+print("-" * 50)
+print(f"Columnas sin Outliers: {len(df.select_dtypes(include='number').columns) - columnas_out_Z}")
+
+--- Cell 114 ---
+from sklearn.ensemble import IsolationForest
+
+atipicos_IF = {}
+columnas_out_IF = 0
+
+for col in outlier_cols:
+    serie = df[[col]].dropna()
+    
+    modelo = IsolationForest(contamination=0.05, random_state=42)
+    predicciones = modelo.fit_predict(serie)
+    
+    # -1 = outlier, 1 = normal
+    df_out_IF = df.loc[serie.index[predicciones == -1]]
+    
+    if len(df_out_IF) > 0:
+        print(f"Para la columna {col}: ")
+        print(f"- Total Outliers: {len(df_out_IF)}")
+        print(f"- % del total: {len(df_out_IF)/len(serie)*100:.2f}%")
+        columnas_out_IF += 1
+        atipicos_IF[col] = df_out_IF
+        print("-"*50)
+
+print(f"Total Columnas Numéricas: {len(df.select_dtypes(include='number').columns)}")
+print("-"*50)
+print(f"Columnas con Outliers: {columnas_out_IF}")
+print("-"*50)
+print(f"Columnas sin Outliers: {len(df.select_dtypes(include='number').columns) - columnas_out_IF}")
+
+--- Cell 116 ---
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
+
+atipicos_DBSCAN = {}
+columnas_out_DBSCAN = 0
+
+for col in outlier_cols:
+    serie = df[[col]].dropna()
+    
+    # Escalamos antes (DBSCAN es sensible a la escala)
+    serie_esc = StandardScaler().fit_transform(serie)
+    
+    modelo = DBSCAN(eps=0.5, min_samples=5)
+    etiquetas = modelo.fit_predict(serie_esc)
+    
+    # Etiqueta -1 = outlier (ruido)
+    df_out_DBSCAN = df.loc[serie.index[etiquetas == -1]]
+    
+    if len(df_out_DBSCAN) > 0:
+        print(f"Para la columna {col}: ")
+        print(f"- Total Outliers: {len(df_out_DBSCAN)}")
+        print(f"- % del total: {len(df_out_DBSCAN)/len(serie)*100:.2f}%")
+        columnas_out_DBSCAN += 1
+        atipicos_DBSCAN[col] = df_out_DBSCAN
+        print("-"*50)
+
+print(f"Total Columnas Numéricas: {len(df.select_dtypes(include='number').columns)}")
+print("-"*50)
+print(f"Columnas con Outliers: {columnas_out_DBSCAN}")
+print("-"*50)
+print(f"Columnas sin Outliers: {len(df.select_dtypes(include='number').columns) - columnas_out_DBSCAN}")
+
+--- Cell 118 ---
+from collections import defaultdict
+
+conteo_outliers = defaultdict(int)
+
+def acumular_outliers(diccionario, conteo):
+    for col, df_out in diccionario.items():
+        for idx in df_out.index:
+            conteo[idx] += 1
+
+acumular_outliers(atipicos_RIQ, conteo_outliers)
+acumular_outliers(atipicos_Z, conteo_outliers)
+acumular_outliers(atipicos_IF, conteo_outliers)
+acumular_outliers(atipicos_DBSCAN, conteo_outliers)
+
+import pandas as pd
+
+df_conteo = pd.DataFrame.from_dict(
+    conteo_outliers,
+    orient='index',
+    columns=['n_metodos']
+)
+
+def clasificar(n):
+    if n == 1:
+        return "1 método"
+    elif n == 2:
+        return "2 métodos"
+    elif n == 3:
+        return "3 métodos"
+    elif n >= 4:
+        return "4 métodos"
+
+df_conteo["categoria"] = df_conteo["n_metodos"].apply(clasificar)
+
+print(df_conteo["categoria"].value_counts())
+
+--- Cell 119 ---
+from collections import defaultdict
+import pandas as pd
+
+# Diccionario: (columna, idx) -> set de métodos que lo detectaron
+registro = defaultdict(set)
+
+def registrar_outliers(diccionario, nombre_metodo):
+    for col, df_out in diccionario.items():
+        for idx in df_out.index:
+            registro[(col, idx)].add(nombre_metodo)
+
+registrar_outliers(atipicos_RIQ, 'RIQ')
+registrar_outliers(atipicos_Z, 'Z-Score')
+registrar_outliers(atipicos_IF, 'Isolation Forest')
+registrar_outliers(atipicos_DBSCAN, 'DBSCAN')
+
+# Construimos el DataFrame
+filas = []
+for (col, idx), metodos in registro.items():
+    filas.append({
+        'columna': col,
+        'id': idx,
+        'valor': df.loc[idx, col],
+        'n_metodos': len(metodos),
+        'metodos': ', '.join(sorted(metodos))
+    })
+
+df_outliers = pd.DataFrame(filas)
+df_outliers = df_outliers.sort_values(by=['columna', 'n_metodos'], ascending=[True, False]).reset_index(drop=True)
+
+print(df_outliers['columna'].unique())
+
+--- Cell 121 ---
+df_outliers[df_outliers['columna'] == 'Edad']
+
+--- Cell 123 ---
+df_outliers[df_outliers['columna'] == 'Horas_Formacion']
+
+--- Cell 125 ---
+df_outliers[df_outliers['columna'] == 'Horas_Semana']
+
+--- Cell 127 ---
+# Guardamos el original como respaldo
+df_antes = df.copy()
+
+print(f"Filas antes: {len(df)}")
+
+# Definimos condiciones de valores imposibles
+condiciones_imposibles = (
+    (df['Edad'] > 100) |              # Edad humana imposible
+    (df['Edad'] < 0) |                # Edad negativa
+    (df['Horas_Formacion'] > 1000) |  # Horas formación irreales
+    (df['Horas_Formacion'] < 0) |     # Horas negativas
+    (df['Horas_Semana'] > 168) |      # Más horas que tiene una semana
+    (df['Horas_Semana'] < 0)          # Horas negativas
+)
+
+# Vemos qué filas se van a eliminar (auditoría antes de borrar)
+filas_a_eliminar = df[condiciones_imposibles]
+print(f"\nFilas a eliminar: {len(filas_a_eliminar)}")
+print(filas_a_eliminar[['Edad', 'Horas_Formacion', 'Horas_Semana']])
+
+# Sobrescribimos df dejando solo los registros válidos
+df = df[~condiciones_imposibles].reset_index(drop=True)
+
+print(f"\nFilas después: {len(df)}")
+print(f"Filas eliminadas: {len(df_antes) - len(df)}")
+
+--- Cell 128 ---
+# Verificamos que los rangos ahora sean realistas
+print("Rangos después de la limpieza:")
+print(f"Edad: {df['Edad'].min()} - {df['Edad'].max()}")
+print(f"Horas_Formacion: {df['Horas_Formacion'].min()} - {df['Horas_Formacion'].max()}")
+print(f"Horas_Semana: {df['Horas_Semana'].min()} - {df['Horas_Semana'].max()}")
+
+--- Cell 131 ---
+# Diccionario con las dimensiones y sus ítems correspondientes
+dimensiones = {
+    'CTRL':      ['CT1', 'CT2', 'CT3'],
+    'PRES':      ['PT1', 'PT2', 'PT3', 'PT4'],
+    'LIDER':     ['CL1', 'CL2', 'CL3', 'CL4', 'CL5', 'CL6', 'CL7'],
+    'COMP':      ['AC1', 'AC2', 'AC3'],
+    'ROL_C':     ['CR1', 'CR2', 'CR3', 'CR4'],
+    'ROL_CON':   ['CoR1', 'CoR2', 'CoR3'],
+    'CAMBIO':    ['GC1', 'GC2', 'GC3', 'GC4'],
+    'SM_ORG':    ['SM1', 'SM2', 'SM3', 'SM4', 'SM5'],
+    'SAT':       [f'SAT{i}' for i in range(1, 10)],    # SAT1..SAT9
+    'RETIRO':    ['IR1', 'IR2', 'IR3', 'IR4'],
+    'FAM_TRAB':  ['FT1', 'FT2', 'FT3', 'FT4', 'FT5'],
+    'TRAB_FAM':  ['TF1', 'TF2', 'TF3', 'TF4', 'TF5'],
+    'BURNOUT':   [f'BU{i}' for i in range(1, 13)],     # BU1..BU12
+    'BIENESTAR': [f'BP{i}' for i in range(1, 11)],     # BP1..BP10
+    'SOMATIZ':   [f'SOM{i}' for i in range(1, 6)],     # SOM1..SOM5
+    'DESGASTE':  [f'DL{i}' for i in range(1, 9)],      # DL1..DL8
+}
+
+# Construimos las 16 variables promedio
+for dim, items in dimensiones.items():
+    df[dim] = df[items].mean(axis=1)
+
+print(f"Se crearon {len(dimensiones)} variables de dimensión.")
+print(f"Columnas del df: {df.shape[1]}")
+df[list(dimensiones.keys())].head()
+
+--- Cell 132 ---
+# Resumen estadístico de las nuevas variables
+df[list(dimensiones.keys())].describe().T
+
+--- Cell 134 ---
+condiciones_imposibles_orig = (
+    (df_original['Edad'] > 100) |
+    (df_original['Edad'] < 0) |
+    (df_original['Horas_Formacion'] > 1000) |
+    (df_original['Horas_Formacion'] < 0) |
+    (df_original['Horas_Semana'] > 168) |
+    (df_original['Horas_Semana'] < 0)
+)
+baseline['outliers_imposibles'] = condiciones_imposibles_orig.sum()
+baseline['outliers_totales'] = len(df_outliers)  # del df_outliers que armaste antes
+
+--- Cell 135 ---
+# Después de la limpieza ya no debe haber outliers imposibles
+condiciones_imposibles_final = (
+    (df['Edad'] > 100) |
+    (df['Edad'] < 0) |
+    (df['Horas_Formacion'] > 1000) |
+    (df['Horas_Formacion'] < 0) |
+    (df['Horas_Semana'] > 168) |
+    (df['Horas_Semana'] < 0)
+)
+reporte_final['outliers_imposibles'] = condiciones_imposibles_final.sum()
+
+# Outliers legítimos restantes (los que decidiste mantener)
+# Recalculamos con RIQ sobre el df limpio para tener un número consistente
+total_outliers_restantes = 0
+for col in df.select_dtypes(include='number').columns:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    RIQ = Q3 - Q1
+    Lim_Sup = Q3 + 1.5*RIQ
+    Lim_Inf = Q1 - 1.5*RIQ
+    total_outliers_restantes += ((df[col] > Lim_Sup) | (df[col] < Lim_Inf)).sum()
+
+reporte_final['outliers_totales'] = total_outliers_restantes
+
+--- Cell 136 ---
+print()
+print("=== COMPARATIVO ANTES / DESPUÉS ===")
+print(f"{'Métrica':<35} {'Antes':>12} {'Después':>12}")
+print('─' * 62)
+print(f"{'N registros':<35} {baseline['filas']:>12} {reporte_final['filas']:>12}")
+print(f"{'N columnas':<35} {baseline['columnas']:>12} {reporte_final['columnas']:>12}")
+print(f"{'Faltantes totales':<35} {baseline['faltantes_total']:>12} {reporte_final['faltantes_total']:>12}")
+print(f"{'% faltantes':<35} {baseline['pct_faltantes']:>11}% {reporte_final['pct_faltantes']:>11}%")
+print(f"{'Columnas con faltantes':<35} {baseline['cols_con_faltantes']:>12} {reporte_final['cols_con_faltantes']:>12}")
+print(f"{'Duplicados exactos':<35} {baseline['n_duplicados']:>12} {reporte_final['n_duplicados']:>12}")
+print(f"{'Cols escala como object':<35} {baseline['cols_escala_object']:>12} {reporte_final['cols_escala_object']:>12}")
+print(f"{'Fuera de rango 1-5':<35} {baseline['fuera_rango_1_5']:>12} {reporte_final['fuera_rango_1_5']:>12}")
+print(f"{'Fuera de rango 1-7':<35} {baseline['fuera_rango_1_7']:>12} {reporte_final['fuera_rango_1_7']:>12}")
+print(f"{'Outliers imposibles':<35} {baseline['outliers_imposibles']:>12} {reporte_final['outliers_imposibles']:>12}")
+print(f"{'Outliers totales (RIQ)':<35} {baseline['outliers_totales']:>12} {reporte_final['outliers_totales']:>12}")
+

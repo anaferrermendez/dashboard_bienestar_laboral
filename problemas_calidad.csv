@@ -1,0 +1,13 @@
+ID_problema,Tipo_problema,Columna_afectada,Magnitud,Descripcion,Impacto_potencial,Prioridad
+1,dtype incorrecto,CT1…DL8 (86 cols),86 columnas,Columnas de escala almacenadas como object en lugar de numérico,"Imposible calcular estadísticos, correlaciones o imputar con sklearn",Crítica
+2,Valores faltantes NaN,91 columnas de escala,2 582 celdas (5.6%),Celdas vacías verdaderas detectadas con df.isnull(),"Promedios de dimensión sesgados, modelos con errores si no se imputa",Alta
+3,Código nulo 999,"Edad, Horas_Semana, IR1, SOM4, SM5",5 celdas,El valor 999 representa ausencia pero no es NaN; no detectado por isnull(),"Media de Edad sesgada, 999 mapeado a NaN en escala",Alta
+4,Código nulo -1,Horas_Formacion,4 celdas,El valor -1 representa horas no aplica pero contamina estadísticos,Estadísticos erróneos de Horas_Formacion,Media
+5,Código nulo '?',"CT2, IR4, BU10",3 celdas,Signo de interrogación usado como código de ausencia,"Falla el mapeo de escala, queda como NaN sin registro",Media
+6,Código nulo '--',"IR3, IR4, BU10, DL7",5 celdas,Doble guión usado como código de ausencia,Falla el mapeo de escala,Media
+7,Código nulo 'sin dato',"CT2, IR4",2 celdas,Texto literal que representa ausencia,Falla el mapeo de escala,Media
+8,Duplicados lógicos,Múltiples columnas,18 filas involucradas,Re-envíos de formulario con IDs diferentes pero mismo perfil,"Inflación de ciertos grupos demográficos, sesgo en promedios",Alta
+9,Typos y variantes de capitalización,"Sexo, Estado_Civil, Sector, Tipo_Cargo, Modalidad",5 variables,"Ej: 'Mjer', 'Casdo', 'Mixo', 'Adminstrativo', '  Presencial  '","Categorías fantasma, análisis de frecuencias incorrecto",Alta
+10,Variantes textuales en escala,"CT2, CT3, PT1, PT3, CL3, CL4, CL7, AC1, AC2, CR4, SM1, SM3",>12 columnas,"Ej: 'NUNCA','nunca', 'Frecuente','A menudo','Siempree','Alguna vez'",NaN al mapear → subcobertura del instrumento,Crítica
+11,BP con texto en lugar de número,"BP1, BP2, BP3, BP4, BP5","5 columnas, ~30% de celdas","Valores como 'cuatro','cinco','seis' en lugar de 4,5,6",Toda la dimensión BIENESTAR no se puede analizar,Crítica
+12,Ítem inverso sin invertir,IR1,"1 columna, 412 filas",IR1 redactado en sentido opuesto — requiere transformación 8 - IR1,Promedio de dimensión RETIRO invalida la interpretación,Crítica
