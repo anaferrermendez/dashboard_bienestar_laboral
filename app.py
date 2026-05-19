@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Configuración premium
-st.set_page_config(page_title="Data Quality Dashboard", page_icon="✨", layout="wide")
+st.set_page_config(page_title="Data Quality Dashboard", layout="wide")
 plt.style.use('seaborn-v0_8-whitegrid')
 PALETA = ['#1f4e79', '#2e75b6', '#9dc3e6', '#ffc000', '#c55a11']
 sns.set_palette(PALETA)
@@ -275,18 +275,24 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("✨ Dashboard de Calidad de Datos - Preprocesamiento")
+st.title("Dashboard de Calidad de Datos - Preprocesamiento")
+st.markdown("**Ana Ferrer** · **Sofia Nuñez** · **Sergio Soler**")
 st.markdown("---")
 
 # Menú lateral
 menu = st.sidebar.radio(
     "Navegación",
-    ["1️⃣ Estado Inicial", "2️⃣ Explorador de Problemas", "3️⃣ Comparativo Antes/Después", "4️⃣ Certificación de Calidad"]
+    [
+        "1. Estado Inicial",
+        "2. Explorador de Problemas",
+        "3. Comparativo Antes/Después",
+        "4. Certificación de Calidad",
+    ],
 )
 
 # Panel 1: Estado Inicial
-if menu == "1️⃣ Estado Inicial":
-    st.header("1️⃣ Estado Inicial del Dataset")
+if menu == "1. Estado Inicial":
+    st.header("1. Estado Inicial del Dataset")
     st.markdown("Análisis del dataset crudo (`bienestar_laboral_Preprocesamiento.xlsx`) antes de cualquier tratamiento.")
     
     col1, col2, col3 = st.columns(3)
@@ -608,8 +614,8 @@ if menu == "1️⃣ Estado Inicial":
         st.dataframe(df_nulos_especiales, use_container_width=True)
 
 # Panel 2: Explorador de Problemas
-elif menu == "2️⃣ Explorador de Problemas":
-    st.header("2️⃣ Explorador de Problemas y Auditoría")
+elif menu == "2. Explorador de Problemas":
+    st.header("2. Explorador de Problemas y Auditoría")
     st.markdown("Este panel permite auditar de forma granular cada problema detectado, asegurando la trazabilidad desde los datos crudos antes de aplicar el pipeline de limpieza.")
     
     prob_type = st.selectbox(
@@ -851,8 +857,8 @@ elif menu == "2️⃣ Explorador de Problemas":
             st.dataframe(filas_a_eliminar[['ID', 'Edad', 'Horas_Formacion', 'Horas_Semana']], use_container_width=True)
 
 # Panel 3: Comparativo Antes/Después
-elif menu == "3️⃣ Comparativo Antes/Después":
-    st.header("3️⃣ Comparativo Antes vs Después del Preprocesamiento")
+elif menu == "3. Comparativo Antes/Después":
+    st.header("3. Comparativo Antes vs Después del Preprocesamiento")
     df_antes, df_despues = load_comparativo()
     st.caption(
         f"**Antes (sucio):** `bienestar_laboral_Preprocesamiento.xlsx` — {len(df_antes):,} filas · "
@@ -959,8 +965,8 @@ elif menu == "3️⃣ Comparativo Antes/Después":
         )
 
 # Panel 4: Certificación de Calidad
-elif menu == "4️⃣ Certificación de Calidad":
-    st.header("4️⃣ Certificación de Calidad del Dataset")
+elif menu == "4. Certificación de Calidad":
+    st.header("4. Certificación de Calidad del Dataset")
     st.caption("Validación final del pipeline · Modelo JD-R · Dataset: `dataset_limpio.xlsx`")
 
     _, df_cert = load_comparativo()
