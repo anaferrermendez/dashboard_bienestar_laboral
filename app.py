@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Configuración premium
-st.set_page_config(page_title="Data Quality Dashboard", layout="wide")
+st.set_page_config(page_title="Data Quality Dashboard", page_icon="✨", layout="wide")
 plt.style.use('seaborn-v0_8-whitegrid')
 PALETA = ['#1f4e79', '#2e75b6', '#9dc3e6', '#ffc000', '#c55a11']
 sns.set_palette(PALETA)
@@ -152,13 +152,17 @@ def es_numerica_comparativo(serie_antes, serie_despues):
             return True
     return False
 
-def resumen_numerico(serie):
+def resumen_numerico(serie, serie_original=None):
     s = pd.to_numeric(serie, errors='coerce')
     if s.count() == 0:
-        return {m: None for m in ['Conteo (válidos)', 'Nulos', 'Media', 'Mediana', 'Mínimo', 'Máximo', 'Desv. estándar']}
+        return {m: None for m in ['Conteo (válidos)', 'Nulos verdaderos', 'Media', 'Mediana', 'Mínimo', 'Máximo', 'Desv. estándar']}
+    
+    nulos_verdaderos = int(serie_original.isna().sum()) if serie_original is not None else int(s.isna().sum())
+    conteo_validos = int(serie_original.notna().sum()) if serie_original is not None else int(s.count())
+    
     return {
-        'Conteo (válidos)': int(s.count()),
-        'Nulos': int(s.isna().sum()),
+        'Conteo (válidos)': conteo_validos,
+        'Nulos verdaderos': nulos_verdaderos,
         'Media': round(s.mean(), 2),
         'Mediana': round(s.median(), 2),
         'Mínimo': round(s.min(), 2),
@@ -252,11 +256,13 @@ def evaluar_check_jdr(corr, a, b, operador, umbral):
     signo = '>' if operador == '>' else '<'
     return cumple, r, f"Esperado: {texto_op} {signo} {umbral}"
 
-def resumen_categorico(serie):
+def resumen_categorico(serie, serie_original=None):
     vc = serie.value_counts(dropna=False)
+    nulos_verdaderos = int(serie_original.isna().sum()) if serie_original is not None else int(serie.isna().sum())
+    conteo_validos = int(serie_original.notna().sum()) if serie_original is not None else int(serie.notna().sum())
     datos = {
-        'Conteo (válidos)': int(serie.notna().sum()),
-        'Nulos': int(serie.isna().sum()),
+        'Conteo (válidos)': conteo_validos,
+        'Nulos verdaderos': nulos_verdaderos,
         'Categorías únicas': int(serie.nunique(dropna=True)),
         'Moda': vc.index[0] if len(vc) else None,
         'Frecuencia moda': int(vc.iloc[0]) if len(vc) else None,
@@ -276,23 +282,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Dashboard de Calidad de Datos - Preprocesamiento")
-st.markdown("**Ana Ferrer** · **Sofia Nuñez** · **Sergio Soler**")
+st.caption("Ana Ferrer, Sofia Nuñez, Sergio Soler")
 st.markdown("---")
 
 # Menú lateral
 menu = st.sidebar.radio(
     "Navegación",
-    [
-        "1. Estado Inicial",
-        "2. Explorador de Problemas",
-        "3. Comparativo Antes/Después",
-        "4. Certificación de Calidad",
-    ],
+    ["Estado Inicial", "Explorador de Problemas", "Comparativo Antes/Después", "Certificación de Calidad"]
 )
 
 # Panel 1: Estado Inicial
-if menu == "1. Estado Inicial":
-    st.header("1. Estado Inicial del Dataset")
+if menu == "Estado Inicial":
+    st.header("Estado Inicial del Dataset")
     st.markdown("Análisis del dataset crudo (`bienestar_laboral_Preprocesamiento.xlsx`) antes de cualquier tratamiento.")
     
     col1, col2, col3 = st.columns(3)
@@ -331,6 +332,45 @@ if menu == "1. Estado Inicial":
     )
     fig_heat.update_layout(showlegend=True)
     st.plotly_chart(fig_heat, use_container_width=True)
+    
+    # Nuevo Componente: Faltantes por Dimensión
+    st.subheader("Componente 1b: Faltantes por Dimensión Psicosocial")
+    st.markdown("Consolidación del porcentaje y conteo total de valores faltantes (incluyendo códigos encubiertos e inconsistencias) agrupados a nivel de dimensión clínica.")
+    
+    dim_faltantes = []
+    for dim, total_nulos in IMPUTACION_DIMENSION.items():
+        if dim not in DIMS_COMP: continue
+        
+        items_validos = [c for c in DIMS_COMP[dim] if c in df_original.columns]
+        if not items_validos: continue
+        
+        # El notebook calcula sobre 394 filas (después de eliminar 18 duplicados)
+        total_celdas = 394 * len(items_validos)
+        pct_nulos = (total_nulos / total_celdas) * 100
+        
+        dim_faltantes.append({
+            'Dimensión': dim,
+            'Nulos (Conteo)': total_nulos,
+            'Pct_Nulos': pct_nulos,
+            'Total Celdas': total_celdas
+        })
+        
+    df_dim_faltantes = pd.DataFrame(dim_faltantes).sort_values('Pct_Nulos', ascending=True)
+    
+    fig_dim = px.bar(
+        df_dim_faltantes,
+        x='Pct_Nulos',
+        y='Dimensión',
+        orientation='h',
+        text=df_dim_faltantes.apply(lambda row: f"{row['Pct_Nulos']:.1f}% ({row['Nulos (Conteo)']} celdas)", axis=1),
+        title='Porcentaje de Valores Faltantes por Dimensión',
+        labels={'Pct_Nulos': '% Faltante', 'Dimensión': ''},
+        color='Pct_Nulos',
+        color_continuous_scale='Oranges'
+    )
+    fig_dim.update_traces(textposition='outside')
+    fig_dim.update_layout(showlegend=False, xaxis_range=[0, df_dim_faltantes['Pct_Nulos'].max() * 1.2])
+    st.plotly_chart(fig_dim, use_container_width=True)
     
     st.markdown("---")
     
@@ -614,8 +654,8 @@ if menu == "1. Estado Inicial":
         st.dataframe(df_nulos_especiales, use_container_width=True)
 
 # Panel 2: Explorador de Problemas
-elif menu == "2. Explorador de Problemas":
-    st.header("2. Explorador de Problemas y Auditoría")
+elif menu == "Explorador de Problemas":
+    st.header("Explorador de Problemas y Auditoría")
     st.markdown("Este panel permite auditar de forma granular cada problema detectado, asegurando la trazabilidad desde los datos crudos antes de aplicar el pipeline de limpieza.")
     
     prob_type = st.selectbox(
@@ -857,8 +897,8 @@ elif menu == "2. Explorador de Problemas":
             st.dataframe(filas_a_eliminar[['ID', 'Edad', 'Horas_Formacion', 'Horas_Semana']], use_container_width=True)
 
 # Panel 3: Comparativo Antes/Después
-elif menu == "3. Comparativo Antes/Después":
-    st.header("3. Comparativo Antes vs Después del Preprocesamiento")
+elif menu == "Comparativo Antes/Después":
+    st.header("Comparativo Antes vs Después del Preprocesamiento")
     df_antes, df_despues = load_comparativo()
     st.caption(
         f"**Antes (sucio):** `bienestar_laboral_Preprocesamiento.xlsx` — {len(df_antes):,} filas · "
@@ -892,6 +932,8 @@ elif menu == "3. Comparativo Antes/Después":
             fig1, ax1 = plt.subplots(figsize=(6, 4))
             if es_numerica:
                 datos = pd.to_numeric(serie_antes, errors='coerce').dropna()
+                if var_comp == 'Horas_Semana':
+                    datos = datos[datos > 0]
                 sns.histplot(datos, kde=True, color='#c55a11', ax=ax1, bins=15)
                 ax1.set_xlabel(var_comp)
             else:
@@ -913,10 +955,14 @@ elif menu == "3. Comparativo Antes/Después":
             fig2, ax2 = plt.subplots(figsize=(6, 4))
             if es_numerica:
                 datos = pd.to_numeric(serie_despues, errors='coerce').dropna()
+                if var_comp == 'Horas_Semana':
+                    datos = datos[datos > 0]
                 sns.histplot(datos, kde=True, color='#2ca02c', ax=ax2, bins=15)
                 ax2.set_xlabel(var_comp)
             else:
                 vc = serie_despues.value_counts().head(10)
+                if var_comp == 'Horas_Semana':
+                    vc = vc[vc.index != 0]
                 sns.barplot(y=vc.index.astype(str), x=vc.values, color='#2ca02c', ax=ax2)
                 ax2.set_xlabel("Frecuencia")
             ax2.set_ylabel("")
@@ -927,8 +973,9 @@ elif menu == "3. Comparativo Antes/Después":
     st.subheader("Resumen estadístico")
 
     if es_numerica:
-        res_antes = resumen_numerico(serie_antes) if serie_antes is not None else {}
-        res_despues = resumen_numerico(serie_despues) if serie_despues is not None else {}
+        serie_orig_antes = df_antes[var_comp] if var_comp in df_antes.columns else None
+        res_antes = resumen_numerico(serie_antes, serie_orig_antes) if serie_antes is not None else {}
+        res_despues = resumen_numerico(serie_despues, serie_despues) if serie_despues is not None else {}
         metricas = list(res_despues.keys()) if res_despues else list(res_antes.keys())
         stats_df = pd.DataFrame({
             'Métrica': metricas,
@@ -943,7 +990,8 @@ elif menu == "3. Comparativo Antes/Después":
             if serie_antes is None:
                 st.info("No aplica.")
             else:
-                st.dataframe(resumen_categorico(serie_antes), use_container_width=True, hide_index=True)
+                serie_orig_antes = df_antes[var_comp] if var_comp in df_antes.columns else None
+                st.dataframe(resumen_categorico(serie_antes, serie_orig_antes), use_container_width=True, hide_index=True)
                 st.markdown("**Top 10 categorías**")
                 top_antes = serie_antes.value_counts(dropna=False).reset_index().head(10)
                 top_antes.columns = ['Categoría', 'Frecuencia']
@@ -953,9 +1001,11 @@ elif menu == "3. Comparativo Antes/Después":
             if serie_despues is None:
                 st.warning("No disponible.")
             else:
-                st.dataframe(resumen_categorico(serie_despues), use_container_width=True, hide_index=True)
+                st.dataframe(resumen_categorico(serie_despues, serie_despues), use_container_width=True, hide_index=True)
                 st.markdown("**Top 10 categorías**")
                 top_despues = serie_despues.value_counts(dropna=False).reset_index().head(10)
+                if var_comp == 'Horas_Semana':
+                    top_despues = top_despues[top_despues['Categoría'] != 0]
                 top_despues.columns = ['Categoría', 'Frecuencia']
                 st.dataframe(top_despues, use_container_width=True, hide_index=True)
 
@@ -965,8 +1015,8 @@ elif menu == "3. Comparativo Antes/Después":
         )
 
 # Panel 4: Certificación de Calidad
-elif menu == "4. Certificación de Calidad":
-    st.header("4. Certificación de Calidad del Dataset")
+elif menu == "Certificación de Calidad":
+    st.header("Certificación de Calidad del Dataset")
     st.caption("Validación final del pipeline · Modelo JD-R · Dataset: `dataset_limpio.xlsx`")
 
     _, df_cert = load_comparativo()
